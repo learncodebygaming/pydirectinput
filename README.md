@@ -2,9 +2,15 @@
 
 This library aims to replicate the functionality of the PyAutoGUI mouse and keyboard inputs, but by utilizing DirectInput scan codes and the more modern SendInput() win32 function. PyAutoGUI uses Virtual Key Codes (VKs) and the deprecated mouse_event() and keybd_event() win32 functions. You may find that PyAutoGUI does not work in some applications, particularly in video games and other software that rely on DirectX. If you find yourself in that situation, give this library a try!
 
-This package is intended to be used in conjunction with PyAutoGUI. You can continue to use PyAutoGUI for all of its cool features and simply substitute in PyDirectInput for the inputs that aren't working. The function interfaces are the same, but may not implement all optional parameters and features.
+`pip install pydirectinput`
+
+This package is intended to be used in conjunction with PyAutoGUI. You can continue to use PyAutoGUI for all of its cool features and simply substitute in PyDirectInput for the inputs that aren't working. The function interfaces are the same, but this package may not implement all optional parameters and features.
 
 Want to see a missing feature implemented? Why not give it a try yourself! I welcome all pull requests and will be happy to work with you to get a solution fleshed out. Get involved in open source! Learn more about programming! Pad your resume! Have fun!
+
+Source code available at https://github.com/learncodebygaming/pydirectinput
+
+Watch the tutorial here: Coming soon
 
 ## Example Usage
 
@@ -56,6 +62,6 @@ I have been testing with Half-Life 2 to confirm that these inputs work with Dire
 - scroll functions
 - drag functions
 - hotkey functions
-- support for special characters (ie. '!', '@', '#'...)
+- support for special characters requiring the shift key (ie. '!', '@', '#'...)
 - ignored parameters on mouse functions: duration, tween, logScreenshot
 - ignored parameters on keyboard functions: logScreenshot
