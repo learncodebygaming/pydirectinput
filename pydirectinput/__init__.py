@@ -147,10 +147,10 @@ KEYBOARD_MAPPING = {
     'winright': 0xDC + 1024,
     'apps': 0xDD + 1024,
     'ctrlright': 0x9D + 1024,
-    'up': 0xC8 + 1024,
-    'left': 0xCB + 1024,
-    'down': 0xD0 + 1024,
-    'right': 0xCD + 1024,
+    'up': 0xE048,
+    'left': 0xE04B,
+    'down': 0xE050,
+    'right': 0xE04D,
 }
 
 
@@ -408,6 +408,16 @@ def keyDown(key, logScreenshot=None, _pause=True):
     if not key in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
         return 
 
+    # if numlock is on and an arrow key is being pressed, we need to send an additional scancode
+    # https://handmade.network/wiki/2823-keyboard_inputs_-_scancodes,_raw_input,_text_input,_key_names
+    if key in ['up', 'left', 'down', 'right'] and ctypes.windll.user32.GetKeyState(0x90):
+        hexKeyCode = 0xE02A
+        extra = ctypes.c_ulong(0)
+        ii_ = Input_I()
+        ii_.ki = KeyBdInput(0, hexKeyCode, 0x0008, 0, ctypes.pointer(extra))
+        x = Input( ctypes.c_ulong(1), ii_)
+        SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+
     hexKeyCode = KEYBOARD_MAPPING[key]
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()
@@ -430,6 +440,15 @@ def keyUp(key, logScreenshot=None, _pause=True):
     x = Input( ctypes.c_ulong(1), ii_)
     SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
+    # if numlock is on and an arrow key is being pressed, we need to send an additional scancode
+    # https://handmade.network/wiki/2823-keyboard_inputs_-_scancodes,_raw_input,_text_input,_key_names
+    if key in ['up', 'left', 'down', 'right'] and ctypes.windll.user32.GetKeyState(0x90):
+        hexKeyCode = 0xE02A
+        extra = ctypes.c_ulong(0)
+        ii_ = Input_I()
+        ii_.ki = KeyBdInput(0, hexKeyCode, 0x0008 | 0x0002, 0, ctypes.pointer(extra))
+        x = Input( ctypes.c_ulong(1), ii_)
+        SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
 # Ignored parameters: logScreenshot
 # nearly identical to PyAutoGUI's implementation

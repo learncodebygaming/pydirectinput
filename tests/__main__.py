@@ -55,6 +55,25 @@ def basic_click():
     pydirectinput.click()
 
 
+def arrow_keys():
+    pydirectinput.keyDown('left')
+    time.sleep(0.25)
+    pydirectinput.keyUp('left')
+    time.sleep(1)
+    pydirectinput.keyDown('right')
+    time.sleep(0.25)
+    pydirectinput.keyUp('right')
+    time.sleep(1)
+    pydirectinput.keyDown('down')
+    time.sleep(0.25)
+    pydirectinput.keyUp('down')
+    time.sleep(1)
+    pydirectinput.keyDown('up')
+    time.sleep(0.25)
+    pydirectinput.keyUp('up')
+    time.sleep(1)
+
+
 
 if __name__ == '__main__':
     
@@ -64,11 +83,13 @@ if __name__ == '__main__':
     #mouse_return_accuracy()
     #time.sleep(1)
     #clicks_and_typing()
+    #time.sleep(6)
+    #wasd_movement()
+    #time.sleep(1)
+    #basic_click()
 
     time.sleep(6)
-    wasd_movement()
-    time.sleep(1)
-    basic_click()
+    arrow_keys()
 
     
     
