@@ -147,10 +147,10 @@ KEYBOARD_MAPPING = {
     'winright': 0xDC + 1024,
     'apps': 0xDD + 1024,
     'ctrlright': 0x9D + 1024,
-    'up': 0xE048,
-    'left': 0xE04B,
-    'down': 0xE050,
-    'right': 0xE04D,
+    'up': 0xC8,
+    'left': 0xCB,
+    'down': 0xD0,
+    'right': 0xCD,
 }
 
 
