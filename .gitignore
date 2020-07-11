@@ -4,3 +4,4 @@ __pycache__
 /pydirectinput.egg-info
 /build
 /dist
+/publish_instructions.txt

@@ -5,6 +5,7 @@ import time
 
 
 SendInput = ctypes.windll.user32.SendInput
+MapVirtualKey = ctypes.windll.user32.MapVirtualKeyW
 
 # Constants for failsafe check and pause
 
@@ -31,6 +32,18 @@ MOUSEEVENTF_RIGHTCLICK = MOUSEEVENTF_RIGHTDOWN + MOUSEEVENTF_RIGHTUP
 MOUSEEVENTF_MIDDLEDOWN = 0x0020
 MOUSEEVENTF_MIDDLEUP = 0x0040
 MOUSEEVENTF_MIDDLECLICK = MOUSEEVENTF_MIDDLEDOWN + MOUSEEVENTF_MIDDLEUP
+
+# KeyBdInput Flags
+KEYEVENTF_EXTENDEDKEY = 0x0001
+KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_SCANCODE = 0x0008
+KEYEVENTF_UNICODE = 0x0004
+
+# MapVirtualKey Map Types
+MAPVK_VK_TO_CHAR = 2
+MAPVK_VK_TO_VSC = 0
+MAPVK_VSC_TO_VK = 1
+MAPVK_VSC_TO_VK_EX = 3
 
 # Keyboard Scan Code Mappings
 KEYBOARD_MAPPING = {
@@ -147,12 +160,14 @@ KEYBOARD_MAPPING = {
     'winright': 0xDC + 1024,
     'apps': 0xDD + 1024,
     'ctrlright': 0x9D + 1024,
-    'up': 0xE048,
-    'left': 0xE04B,
-    'down': 0xE050,
-    'right': 0xE04D,
+    # arrow key scancodes can be different depending on the hardware,
+    # so I think the best solution is to look it up based on the virtual key
+    # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mapvirtualkeya?redirectedfrom=MSDN
+    'up': MapVirtualKey(0x26, MAPVK_VK_TO_VSC),
+    'left': MapVirtualKey(0x25, MAPVK_VK_TO_VSC),
+    'down': MapVirtualKey(0x28, MAPVK_VK_TO_VSC),
+    'right': MapVirtualKey(0x27, MAPVK_VK_TO_VSC),
 }
-
 
 # C struct redefinitions
 
@@ -408,20 +423,26 @@ def keyDown(key, logScreenshot=None, _pause=True):
     if not key in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
         return 
 
-    # if numlock is on and an arrow key is being pressed, we need to send an additional scancode
-    # https://handmade.network/wiki/2823-keyboard_inputs_-_scancodes,_raw_input,_text_input,_key_names
-    if key in ['up', 'left', 'down', 'right'] and ctypes.windll.user32.GetKeyState(0x90):
-        hexKeyCode = 0xE02A
-        extra = ctypes.c_ulong(0)
-        ii_ = Input_I()
-        ii_.ki = KeyBdInput(0, hexKeyCode, 0x0008, 0, ctypes.pointer(extra))
-        x = Input( ctypes.c_ulong(1), ii_)
-        SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+    keybdFlags = KEYEVENTF_SCANCODE
+
+    # arrow keys need the extended key flag
+    if key in ['up', 'left', 'down', 'right']:
+        keybdFlags |= KEYEVENTF_EXTENDEDKEY
+        # if numlock is on and an arrow key is being pressed, we need to send an additional scancode
+        # https://stackoverflow.com/questions/14026496/sendinput-sends-num8-when-i-want-to-send-vk-up-how-come
+        # https://handmade.network/wiki/2823-keyboard_inputs_-_scancodes,_raw_input,_text_input,_key_names
+        if ctypes.windll.user32.GetKeyState(0x90):
+            hexKeyCode = 0xE0
+            extra = ctypes.c_ulong(0)
+            ii_ = Input_I()
+            ii_.ki = KeyBdInput(0, hexKeyCode, KEYEVENTF_SCANCODE, 0, ctypes.pointer(extra))
+            x = Input( ctypes.c_ulong(1), ii_)
+            SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
     hexKeyCode = KEYBOARD_MAPPING[key]
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()
-    ii_.ki = KeyBdInput(0, hexKeyCode, 0x0008, 0, ctypes.pointer(extra))
+    ii_.ki = KeyBdInput(0, hexKeyCode, keybdFlags, 0, ctypes.pointer(extra))
     x = Input( ctypes.c_ulong(1), ii_)
     SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
@@ -433,20 +454,27 @@ def keyUp(key, logScreenshot=None, _pause=True):
     if not key in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
         return 
 
+    keybdFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP
+
+    # arrow keys need the extended key flag
+    if key in ['up', 'left', 'down', 'right']:
+        keybdFlags |= KEYEVENTF_EXTENDEDKEY
+
     hexKeyCode = KEYBOARD_MAPPING[key]
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()
-    ii_.ki = KeyBdInput(0, hexKeyCode, 0x0008 | 0x0002, 0, ctypes.pointer(extra))
+    ii_.ki = KeyBdInput(0, hexKeyCode, keybdFlags, 0, ctypes.pointer(extra))
     x = Input( ctypes.c_ulong(1), ii_)
     SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
     # if numlock is on and an arrow key is being pressed, we need to send an additional scancode
+    # https://stackoverflow.com/questions/14026496/sendinput-sends-num8-when-i-want-to-send-vk-up-how-come
     # https://handmade.network/wiki/2823-keyboard_inputs_-_scancodes,_raw_input,_text_input,_key_names
     if key in ['up', 'left', 'down', 'right'] and ctypes.windll.user32.GetKeyState(0x90):
-        hexKeyCode = 0xE02A
+        hexKeyCode = 0xE0
         extra = ctypes.c_ulong(0)
         ii_ = Input_I()
-        ii_.ki = KeyBdInput(0, hexKeyCode, 0x0008 | 0x0002, 0, ctypes.pointer(extra))
+        ii_.ki = KeyBdInput(0, hexKeyCode, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0, ctypes.pointer(extra))
         x = Input( ctypes.c_ulong(1), ii_)
         SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
