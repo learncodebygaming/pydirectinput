@@ -389,7 +389,7 @@ def moveTo(x=None, y=None, duration=None, tween=None, logScreenshot=False, _paus
 # Ignored parameters: duration, tween, logScreenshot
 # move() and moveRel() are equivalent
 @_genericPyDirectInputChecks
-def moveRel(xOffset=None, yOffset=None, duration=None, tween=None, logScreenshot=False, _pause=True):
+def moveRel(xOffset=0, yOffset=0, duration=None, tween=None, logScreenshot=False, _pause=True):
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()
     ii_.mi = MouseInput(xOffset, yOffset, 0, MOUSEEVENTF_MOVE, 0, ctypes.pointer(extra))
