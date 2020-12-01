@@ -390,12 +390,18 @@ def moveTo(x=None, y=None, duration=None, tween=None, logScreenshot=False, _paus
 # move() and moveRel() are equivalent
 @_genericPyDirectInputChecks
 def moveRel(xOffset=None, yOffset=None, duration=None, tween=None, logScreenshot=False, _pause=True):
-    x, y = position()
-    if xOffset is None:
-        xOffset = 0
-    if yOffset is None:
-        yOffset = 0
-    moveTo(x + xOffset, y + yOffset)
+    extra = ctypes.c_ulong(0)
+    ii_ = Input_I()
+    ii_.mi = MouseInput(xOffset, yOffset, 0, MOUSEEVENTF_MOVE, 0, ctypes.pointer(extra))
+    command = Input(ctypes.c_ulong(0), ii_)
+    SendInput(1, ctypes.pointer(command), ctypes.sizeof(command))
+    
+    #x, y = position()
+    #if xOffset is None:
+    #    xOffset = 0
+    #if yOffset is None:
+    #    yOffset = 0
+    #moveTo(x + xOffset, y + yOffset)
     # We cannot simply use MOUSEEVENTF_MOVE for relative movement, as the results are inconsistent.
     # "Relative mouse motion is subject to the effects of the mouse speed and the two-mouse threshold values. A user 
     # sets these three values with the Pointer Speed slider of the Control Panel's Mouse Properties sheet. You can 
