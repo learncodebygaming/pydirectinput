@@ -375,38 +375,48 @@ def tripleClick(x=None, y=None, interval=0.0, button=LEFT, duration=0.0, tween=N
 # Ignored parameters: duration, tween, logScreenshot
 # PyAutoGUI uses ctypes.windll.user32.SetCursorPos(x, y) for this, which might still work fine in DirectInput 
 # environments.
+# Use the relative flag to do a raw win32 api relative movement call (no MOUSEEVENTF_ABSOLUTE flag), which may be more 
+# appropriate for some applications. Note that this may produce inexact results depending on mouse movement speed.
 @_genericPyDirectInputChecks
-def moveTo(x=None, y=None, duration=None, tween=None, logScreenshot=False, _pause=True):
-    x, y = position(x, y)  # if only x or y is provided, will keep the current position for the other axis
-    x, y = _to_windows_coordinates(x, y)
-    extra = ctypes.c_ulong(0)
-    ii_ = Input_I()
-    ii_.mi = MouseInput(x, y, 0, (MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE), 0, ctypes.pointer(extra))
-    command = Input(ctypes.c_ulong(0), ii_)
-    SendInput(1, ctypes.pointer(command), ctypes.sizeof(command))
+def moveTo(x=None, y=None, duration=None, tween=None, logScreenshot=False, _pause=True, relative=False):
+    if not relative:
+        x, y = position(x, y)  # if only x or y is provided, will keep the current position for the other axis
+        x, y = _to_windows_coordinates(x, y)
+        extra = ctypes.c_ulong(0)
+        ii_ = Input_I()
+        ii_.mi = MouseInput(x, y, 0, (MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE), 0, ctypes.pointer(extra))
+        command = Input(ctypes.c_ulong(0), ii_)
+        SendInput(1, ctypes.pointer(command), ctypes.sizeof(command))
+    else:
+        currentX, currentY = position()
+        moveRel(x - currentX, y - currentY, relative=True)
 
 
 # Ignored parameters: duration, tween, logScreenshot
-# move() and moveRel() are equivalent
+# move() and moveRel() are equivalent.
+# Use the relative flag to do a raw win32 api relative movement call (no MOUSEEVENTF_ABSOLUTE flag), which may be more 
+# appropriate for some applications.
 @_genericPyDirectInputChecks
-def moveRel(xOffset=None, yOffset=None, duration=None, tween=None, logScreenshot=False, _pause=True):
-    x, y = position()
-    if xOffset is None:
-        xOffset = 0
-    if yOffset is None:
-        yOffset = 0
-    moveTo(x + xOffset, y + yOffset)
-    # We cannot simply use MOUSEEVENTF_MOVE for relative movement, as the results are inconsistent.
-    # "Relative mouse motion is subject to the effects of the mouse speed and the two-mouse threshold values. A user 
-    # sets these three values with the Pointer Speed slider of the Control Panel's Mouse Properties sheet. You can 
-    # obtain and set these values using the SystemParametersInfo function." 
-    # https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-mouseinput
-    # https://stackoverflow.com/questions/50601200/pyhon-directinput-mouse-relative-moving-act-not-as-expected
-    # extra = ctypes.c_ulong(0)
-    # ii_ = Input_I()
-    # ii_.mi = MouseInput(xOffset, yOffset, 0, MOUSEEVENTF_MOVE, 0, ctypes.pointer(extra))
-    # command = Input(ctypes.c_ulong(0), ii_)
-    # SendInput(1, ctypes.pointer(command), ctypes.sizeof(command))
+def moveRel(xOffset=None, yOffset=None, duration=None, tween=None, logScreenshot=False, _pause=True, relative=False):
+    if not relative:
+        x, y = position()
+        if xOffset is None:
+            xOffset = 0
+        if yOffset is None:
+            yOffset = 0
+        moveTo(x + xOffset, y + yOffset)
+    else:
+        # When using MOUSEEVENTF_MOVE for relative movement the results may be inconsistent.
+        # "Relative mouse motion is subject to the effects of the mouse speed and the two-mouse threshold values. A user
+        # sets these three values with the Pointer Speed slider of the Control Panel's Mouse Properties sheet. You can 
+        # obtain and set these values using the SystemParametersInfo function." 
+        # https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-mouseinput
+        # https://stackoverflow.com/questions/50601200/pyhon-directinput-mouse-relative-moving-act-not-as-expected
+        extra = ctypes.c_ulong(0)
+        ii_ = Input_I()
+        ii_.mi = MouseInput(xOffset, yOffset, 0, MOUSEEVENTF_MOVE, 0, ctypes.pointer(extra))
+        command = Input(ctypes.c_ulong(0), ii_)
+        SendInput(1, ctypes.pointer(command), ctypes.sizeof(command))
 move = moveRel
 
 

@@ -74,10 +74,19 @@ def arrow_keys():
     time.sleep(1)
 
 
+def relative_mouse():
+    pydirectinput.moveRel(0, 400, relative=True)
+    time.sleep(1)
+    pydirectinput.moveRel(0, -400, relative=True)
+    time.sleep(1)
+    pydirectinput.moveRel(-50, -50, relative=True)
+    time.sleep(3)
+    pydirectinput.moveTo(1150, 0, relative=True)
+
 
 if __name__ == '__main__':
     
-    #time.sleep(4)
+    time.sleep(4)
     #trace_square()
     #time.sleep(1)
     #mouse_return_accuracy()
@@ -87,9 +96,10 @@ if __name__ == '__main__':
     #wasd_movement()
     #time.sleep(1)
     #basic_click()
-
-    time.sleep(6)
-    arrow_keys()
+    #time.sleep(6)
+    #arrow_keys()
+    time.sleep(1)
+    relative_mouse()
 
     
     
