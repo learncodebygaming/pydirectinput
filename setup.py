@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="PyDirectInput",
-    version="1.0.2",
+    version="1.0.3",
     author="Ben Johnson",
     author_email="ben@learncodebygaming.com",
     description="Python mouse and keyboard input automation for Windows using Direct Input.",
