@@ -440,6 +440,10 @@ def keyDown(key, logScreenshot=None, _pause=True):
 
     keybdFlags = KEYEVENTF_SCANCODE
 
+    # Init event tracking
+    insertedEvents = 0
+    expectedEvents = 1
+
     # arrow keys need the extended key flag
     if key in ['up', 'left', 'down', 'right']:
         keybdFlags |= KEYEVENTF_EXTENDEDKEY
@@ -447,19 +451,26 @@ def keyDown(key, logScreenshot=None, _pause=True):
         # https://stackoverflow.com/questions/14026496/sendinput-sends-num8-when-i-want-to-send-vk-up-how-come
         # https://handmade.network/wiki/2823-keyboard_inputs_-_scancodes,_raw_input,_text_input,_key_names
         if ctypes.windll.user32.GetKeyState(0x90):
+            # We need to press two keys, so we expect to have inserted 2 events when done
+            expectedEvents = 2
             hexKeyCode = 0xE0
             extra = ctypes.c_ulong(0)
             ii_ = Input_I()
             ii_.ki = KeyBdInput(0, hexKeyCode, KEYEVENTF_SCANCODE, 0, ctypes.pointer(extra))
             x = Input(ctypes.c_ulong(1), ii_)
-            SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+
+            # SendInput returns the number of event successfully inserted into input stream
+            # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput#return-value
+            insertedEvents += SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
     hexKeyCode = KEYBOARD_MAPPING[key]
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()
     ii_.ki = KeyBdInput(0, hexKeyCode, keybdFlags, 0, ctypes.pointer(extra))
     x = Input(ctypes.c_ulong(1), ii_)
-    SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+    insertedEvents += SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+
+    return insertedEvents == expectedEvents
 
 
 # Ignored parameters: logScreenshot
@@ -471,6 +482,10 @@ def keyUp(key, logScreenshot=None, _pause=True):
 
     keybdFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP
 
+    # Init event tracking
+    insertedEvents = 0
+    expectedEvents = 1
+
     # arrow keys need the extended key flag
     if key in ['up', 'left', 'down', 'right']:
         keybdFlags |= KEYEVENTF_EXTENDEDKEY
@@ -480,18 +495,26 @@ def keyUp(key, logScreenshot=None, _pause=True):
     ii_ = Input_I()
     ii_.ki = KeyBdInput(0, hexKeyCode, keybdFlags, 0, ctypes.pointer(extra))
     x = Input(ctypes.c_ulong(1), ii_)
-    SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+
+    # SendInput returns the number of event successfully inserted into input stream
+    # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput#return-value
+    insertedEvents += SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
     # if numlock is on and an arrow key is being pressed, we need to send an additional scancode
     # https://stackoverflow.com/questions/14026496/sendinput-sends-num8-when-i-want-to-send-vk-up-how-come
     # https://handmade.network/wiki/2823-keyboard_inputs_-_scancodes,_raw_input,_text_input,_key_names
     if key in ['up', 'left', 'down', 'right'] and ctypes.windll.user32.GetKeyState(0x90):
+        # We need to press two keys, so we expect to have inserted 2 events when done
+        expectedEvents = 2
         hexKeyCode = 0xE0
         extra = ctypes.c_ulong(0)
         ii_ = Input_I()
         ii_.ki = KeyBdInput(0, hexKeyCode, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0, ctypes.pointer(extra))
         x = Input(ctypes.c_ulong(1), ii_)
-        SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+        insertedEvents += SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+
+    return insertedEvents == expectedEvents
+
 
 # Ignored parameters: logScreenshot
 # nearly identical to PyAutoGUI's implementation
@@ -510,12 +533,23 @@ def press(keys, presses=1, interval=0.0, logScreenshot=None, _pause=True):
                 lowerKeys.append(s)
         keys = lowerKeys
     interval = float(interval)
+
+    # We need to press x keys y times, which comes out to x*y presses in total
+    expectedPresses = presses * len(keys)
+    completedPresses = 0
+
     for i in range(presses):
         for k in keys:
             failSafeCheck()
-            keyDown(k)
-            keyUp(k)
+            downed = keyDown(k)
+            upped = keyUp(k)
+            # Count key press as complete if key was "downed" and "upped" successfully
+            if downed and upped:
+                completedPresses += 1
+
         time.sleep(interval)
+
+    return completedPresses == expectedPresses
 
 
 # Ignored parameters: logScreenshot
