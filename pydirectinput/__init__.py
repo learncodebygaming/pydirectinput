@@ -31,6 +31,7 @@ MOUSEEVENTF_RIGHTCLICK = MOUSEEVENTF_RIGHTDOWN + MOUSEEVENTF_RIGHTUP
 MOUSEEVENTF_MIDDLEDOWN = 0x0020
 MOUSEEVENTF_MIDDLEUP = 0x0040
 MOUSEEVENTF_MIDDLECLICK = MOUSEEVENTF_MIDDLEDOWN + MOUSEEVENTF_MIDDLEUP
+MOUSEEVENTF_WHEEL = 0x0800
 
 # KeyBdInput Flags
 KEYEVENTF_EXTENDEDKEY = 0x0001
@@ -374,6 +375,22 @@ def tripleClick(x=None, y=None, interval=0.0, button=LEFT, duration=0.0, tween=N
 
 # Missing feature: scroll functions
 
+#A negative number of clicks will scroll down and a positive number will scroll up
+@_genericPyDirectInputChecks
+def scroll(clicks=0, delay=0):
+    if clicks >= 0:
+        direction = 1
+    else:
+        direction = -1
+        clicks = abs(clicks)
+
+    for i in range(clicks):
+        extra = ctypes.c_ulong(0)
+        ii_ = Input_I()
+        ii_.mi = MouseInput(0, 0, ctypes.c_ulong(direction*120), MOUSEEVENTF_WHEEL, 0, ctypes.pointer(extra))
+        x = Input(ctypes.c_ulong(0), ii_)
+        SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+        time.sleep(delay)
 
 # Ignored parameters: duration, tween, logScreenshot
 # PyAutoGUI uses ctypes.windll.user32.SetCursorPos(x, y) for this, which might still work fine in DirectInput 
