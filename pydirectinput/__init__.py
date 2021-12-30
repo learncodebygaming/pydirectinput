@@ -440,6 +440,9 @@ def keyDown(key, logScreenshot=None, _pause=True):
 
     keybdFlags = KEYEVENTF_SCANCODE
 
+    if KEYBOARD_MAPPING[key] >= 1024:
+        keybdFlags |= KEYEVENTF_EXTENDEDKEY
+
     # Init event tracking
     insertedEvents = 0
     expectedEvents = 1
@@ -481,6 +484,9 @@ def keyUp(key, logScreenshot=None, _pause=True):
         return
 
     keybdFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP
+
+    if KEYBOARD_MAPPING[key] >= 1024:
+        keybdFlags |= KEYEVENTF_EXTENDEDKEY
 
     # Init event tracking
     insertedEvents = 0
