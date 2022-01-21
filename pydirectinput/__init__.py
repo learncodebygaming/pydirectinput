@@ -1,7 +1,13 @@
+'''
+Partial implementation of DirectInput function calls to simulate
+mouse and keyboard inputs.
+'''
+
 import ctypes
 import functools
 import inspect
 import time
+from typing import Any, Callable, TypeVar
 
 SendInput = ctypes.windll.user32.SendInput
 MapVirtualKey = ctypes.windll.user32.MapVirtualKeyW
@@ -10,7 +16,7 @@ MapVirtualKey = ctypes.windll.user32.MapVirtualKeyW
 
 FAILSAFE = True
 FAILSAFE_POINTS = [(0, 0)]
-PAUSE = 0.1  # Tenth-second pause by default.
+PAUSE = 0.01  # 1/100 second pause by default.
 
 # Constants for the mouse button names
 LEFT = "left"
@@ -197,6 +203,8 @@ class MouseInput(ctypes.Structure):
 
 
 class POINT(ctypes.Structure):
+    x: int
+    y: int
     _fields_ = [("x", ctypes.c_long),
                 ("y", ctypes.c_long)]
 
@@ -218,24 +226,30 @@ class FailSafeException(Exception):
     pass
 
 
-def failSafeCheck():
+def failSafeCheck() -> None:
     if FAILSAFE and tuple(position()) in FAILSAFE_POINTS:
         raise FailSafeException(
-            "PyDirectInput fail-safe triggered from mouse moving to a corner of the screen. To disable this " \
-            "fail-safe, set pydirectinput.FAILSAFE to False. DISABLING FAIL-SAFE IS NOT RECOMMENDED."
+            "PyDirectInput fail-safe triggered from mouse moving to a corner of the screen. "
+            "To disable this fail-safe, set pydirectinput.FAILSAFE to False. "
+            "DISABLING FAIL-SAFE IS NOT RECOMMENDED."
         )
 
 
-def _handlePause(_pause):
+def _handlePause(_pause: Any) -> None:
+    '''Pause the default amount of time if `_Pause=True` in function arguments'''
     if _pause:
         assert isinstance(PAUSE, int) or isinstance(PAUSE, float)
         time.sleep(PAUSE)
 
 
+RT = TypeVar('RT')  # return type
+
+
 # direct copy of _genericPyAutoGUIChecks()
-def _genericPyDirectInputChecks(wrappedFunction):
+def _genericPyDirectInputChecks(wrappedFunction: Callable[..., RT]) -> Callable[..., RT]:
+    '''Decorator for wrapping input functions'''
     @functools.wraps(wrappedFunction)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any):
         funcArgs = inspect.getcallargs(wrappedFunction, *args, **kwargs)
 
         failSafeCheck()
@@ -248,7 +262,10 @@ def _genericPyDirectInputChecks(wrappedFunction):
 
 # Helper Functions
 
-def _to_windows_coordinates(x=0, y=0):
+def _to_windows_coordinates(x: int = 0, y: int = 0) -> tuple[int, int]:
+    '''
+    Convert x,y coordinates to windows form and return as tuple (x, y).
+    '''
     display_width, display_height = size()
 
     # the +1 here prevents exactly mouse movements from sometimes ending up off by 1 pixel
@@ -258,17 +275,25 @@ def _to_windows_coordinates(x=0, y=0):
     return windows_x, windows_y
 
 
-# position() works exactly the same as PyAutoGUI. I've duplicated it here so that moveRel() can use it to calculate
+# position() works exactly the same as PyAutoGUI.
+# I've duplicated it here so that moveRel() can use it to calculate
 # relative mouse positions.
-def position(x=None, y=None):
+def position(x: int | None = None, y: int | None = None) -> tuple[int, int]:
+    '''
+    Return the current mouse position as tuple (x, y).
+    '''
     cursor = POINT()
     ctypes.windll.user32.GetCursorPos(ctypes.byref(cursor))
     return (x if x else cursor.x, y if y else cursor.y)
 
 
-# size() works exactly the same as PyAutoGUI. I've duplicated it here so that _to_windows_coordinates() can use it 
+# size() works exactly the same as PyAutoGUI.
+# I've duplicated it here so that _to_windows_coordinates() can use it
 # to calculate the window size.
-def size():
+def size() -> tuple[int, int]:
+    '''
+    Return the display size as tuple (x, y).
+    '''
     return (ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1))
 
 
@@ -276,8 +301,19 @@ def size():
 
 # Ignored parameters: duration, tween, logScreenshot
 @_genericPyDirectInputChecks
-def mouseDown(x=None, y=None, button=PRIMARY, duration=None, tween=None, logScreenshot=None, _pause=True):
-    if not x is None or not y is None:
+def mouseDown(
+    x: int | None = None,
+    y: int | None = None,
+    button: str = PRIMARY,
+    duration: float | None = None,
+    tween: None = None,
+    logScreenshot: bool = False,
+    _pause: bool = True,
+) -> None:
+    '''
+    Press down mouse button `button`.
+    '''
+    if x is not None or y is not None:
         moveTo(x, y)
 
     ev = None
@@ -289,19 +325,32 @@ def mouseDown(x=None, y=None, button=PRIMARY, duration=None, tween=None, logScre
         ev = MOUSEEVENTF_RIGHTDOWN
 
     if not ev:
-        raise ValueError('button arg to _click() must be one of "left", "middle", or "right", not %s' % button)
+        raise ValueError(
+            f'button arg to _click() must be one of "left", "middle", or "right", not {button}'
+        )
 
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()
     ii_.mi = MouseInput(0, 0, 0, ev, 0, ctypes.pointer(extra))
-    x = Input(ctypes.c_ulong(0), ii_)
-    SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+    xi = Input(ctypes.c_ulong(0), ii_)
+    SendInput(1, ctypes.pointer(xi), ctypes.sizeof(xi))
 
 
 # Ignored parameters: duration, tween, logScreenshot
 @_genericPyDirectInputChecks
-def mouseUp(x=None, y=None, button=PRIMARY, duration=None, tween=None, logScreenshot=None, _pause=True):
-    if not x is None or not y is None:
+def mouseUp(
+    x: int | None = None,
+    y: int | None = None,
+    button: str = PRIMARY,
+    duration: float | None = None,
+    tween: None = None,
+    logScreenshot: bool = False,
+    _pause: bool = True,
+) -> None:
+    '''
+    Lift up mouse button `button`.
+    '''
+    if x is not None or y is not None:
         moveTo(x, y)
 
     ev = None
@@ -313,20 +362,34 @@ def mouseUp(x=None, y=None, button=PRIMARY, duration=None, tween=None, logScreen
         ev = MOUSEEVENTF_RIGHTUP
 
     if not ev:
-        raise ValueError('button arg to _click() must be one of "left", "middle", or "right", not %s' % button)
+        raise ValueError(
+            'button arg to _click() must be one of "left", "middle", or "right", not {button}'
+        )
 
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()
     ii_.mi = MouseInput(0, 0, 0, ev, 0, ctypes.pointer(extra))
-    x = Input(ctypes.c_ulong(0), ii_)
-    SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+    xi = Input(ctypes.c_ulong(0), ii_)
+    SendInput(1, ctypes.pointer(xi), ctypes.sizeof(xi))
 
 
 # Ignored parameters: duration, tween, logScreenshot
 @_genericPyDirectInputChecks
-def click(x=None, y=None, clicks=1, interval=0.0, button=PRIMARY, duration=None, tween=None, logScreenshot=None,
-          _pause=True):
-    if not x is None or not y is None:
+def click(
+    x: int | None = None,
+    y: int | None = None,
+    clicks: int = 1,
+    interval: float = 0.0,
+    button: str = PRIMARY,
+    duration: float | None = None,
+    tween: None = None,
+    logScreenshot: bool = False,
+    _pause: bool = True,
+) -> None:
+    '''
+    Click mouse button `button` (String left|right|middle).
+    '''
+    if x is not None or y is not None:
         moveTo(x, y)
 
     ev = None
@@ -338,37 +401,96 @@ def click(x=None, y=None, clicks=1, interval=0.0, button=PRIMARY, duration=None,
         ev = MOUSEEVENTF_RIGHTCLICK
 
     if not ev:
-        raise ValueError('button arg to _click() must be one of "left", "middle", or "right", not %s' % button)
+        raise ValueError(
+            f'button arg to _click() must be one of "left", "middle", or "right", not {button}'
+        )
 
-    for i in range(clicks):
+    for _ in range(clicks):
         failSafeCheck()
 
         extra = ctypes.c_ulong(0)
         ii_ = Input_I()
         ii_.mi = MouseInput(0, 0, 0, ev, 0, ctypes.pointer(extra))
-        x = Input(ctypes.c_ulong(0), ii_)
-        SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+        xi: Input = Input(ctypes.c_ulong(0), ii_)
+        SendInput(1, ctypes.pointer(xi), ctypes.sizeof(xi))
 
         time.sleep(interval)
 
 
-def leftClick(x=None, y=None, interval=0.0, duration=0.0, tween=None, logScreenshot=None, _pause=True):
+def leftClick(
+    x: int | None = None,
+    y: int | None = None,
+    interval: float = 0.0,
+    duration: float = 0.0,
+    tween: None = None,
+    logScreenshot: bool = False,
+    _pause: bool = True,
+) -> None:
+    '''
+    Click Left Mouse button.
+    '''
     click(x, y, 1, interval, LEFT, duration, tween, logScreenshot, _pause)
 
 
-def rightClick(x=None, y=None, interval=0.0, duration=0.0, tween=None, logScreenshot=None, _pause=True):
+def rightClick(
+    x: int | None = None,
+    y: int | None = None,
+    interval: float = 0.0,
+    duration: float = 0.0,
+    tween: None = None,
+    logScreenshot: bool = False,
+    _pause: bool = True,
+) -> None:
+    '''
+    Click Right Mouse button.
+    '''
     click(x, y, 1, interval, RIGHT, duration, tween, logScreenshot, _pause)
 
 
-def middleClick(x=None, y=None, interval=0.0, duration=0.0, tween=None, logScreenshot=None, _pause=True):
+def middleClick(
+    x: int | None = None,
+    y: int | None = None,
+    interval: float = 0.0,
+    duration: float = 0.0,
+    tween: None = None,
+    logScreenshot: bool = False,
+    _pause: bool = True,
+) -> None:
+    '''
+    Click Middle Mouse button.
+    '''
     click(x, y, 1, interval, MIDDLE, duration, tween, logScreenshot, _pause)
 
 
-def doubleClick(x=None, y=None, interval=0.0, button=LEFT, duration=0.0, tween=None, logScreenshot=None, _pause=True):
+def doubleClick(
+    x: int | None = None,
+    y: int | None = None,
+    interval: float = 0.0,
+    button: str = LEFT,
+    duration: float = 0.0,
+    tween: None = None,
+    logScreenshot: bool = False,
+    _pause: bool = True,
+) -> None:
+    '''
+    Double click `button`.
+    '''
     click(x, y, 2, interval, button, duration, tween, logScreenshot, _pause)
 
 
-def tripleClick(x=None, y=None, interval=0.0, button=LEFT, duration=0.0, tween=None, logScreenshot=None, _pause=True):
+def tripleClick(
+    x: int | None = None,
+    y: int | None = None,
+    interval: float = 0.0,
+    button: str = LEFT,
+    duration: float = 0.0,
+    tween: None = None,
+    logScreenshot: bool = False,
+    _pause: bool = True,
+) -> None:
+    '''
+    Triple click `button`.
+    '''
     click(x, y, 3, interval, button, duration, tween, logScreenshot, _pause)
 
 
@@ -376,31 +498,72 @@ def tripleClick(x=None, y=None, interval=0.0, button=LEFT, duration=0.0, tween=N
 
 
 # Ignored parameters: duration, tween, logScreenshot
-# PyAutoGUI uses ctypes.windll.user32.SetCursorPos(x, y) for this, which might still work fine in DirectInput 
-# environments.
-# Use the relative flag to do a raw win32 api relative movement call (no MOUSEEVENTF_ABSOLUTE flag), which may be more 
-# appropriate for some applications. Note that this may produce inexact results depending on mouse movement speed.
+# PyAutoGUI uses ctypes.windll.user32.SetCursorPos(x, y) for this,
+# which might still work fine in DirectInput environments.
+# Use the relative flag to do a raw win32 api relative movement call
+# (no MOUSEEVENTF_ABSOLUTE flag), which may be more appropriate for some
+# applications. Note that this may produce inexact results depending on
+# mouse movement speed.
 @_genericPyDirectInputChecks
-def moveTo(x=None, y=None, duration=None, tween=None, logScreenshot=False, _pause=True, relative=False):
+def moveTo(
+    x: int | None = None,
+    y: int | None = None,
+    duration: None = None,
+    tween: None = None,
+    logScreenshot: bool = False,
+    _pause: bool = True,
+    relative: bool = False
+) -> None:
+    '''
+    Move the mouse to an absolute(*) postion.
+
+    (*) If `relative is True`: use `moveRel(..., relative=True) to move.`
+    '''
     if not relative:
-        x, y = position(x, y)  # if only x or y is provided, will keep the current position for the other axis
+        # if only x or y is provided, will keep the current position for the other axis
+        x, y = position(x, y)
         x, y = _to_windows_coordinates(x, y)
         extra = ctypes.c_ulong(0)
         ii_ = Input_I()
-        ii_.mi = MouseInput(x, y, 0, (MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE), 0, ctypes.pointer(extra))
+        ii_.mi = MouseInput(
+            x,
+            y,
+            0,
+            (MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE),
+            0,
+            ctypes.pointer(extra)
+        )
         command = Input(ctypes.c_ulong(0), ii_)
         SendInput(1, ctypes.pointer(command), ctypes.sizeof(command))
     else:
         currentX, currentY = position()
+        if x is None or y is None:
+            raise ValueError("x and y have to be integers if relative is set!")
         moveRel(x - currentX, y - currentY, relative=True)
 
 
 # Ignored parameters: duration, tween, logScreenshot
 # move() and moveRel() are equivalent.
-# Use the relative flag to do a raw win32 api relative movement call (no MOUSEEVENTF_ABSOLUTE flag), which may be more 
-# appropriate for some applications.
+# Use the relative flag to do a raw win32 api relative movement call
+# (no MOUSEEVENTF_ABSOLUTE flag), which may be more appropriate for some
+# applications.
 @_genericPyDirectInputChecks
-def moveRel(xOffset=None, yOffset=None, duration=None, tween=None, logScreenshot=False, _pause=True, relative=False):
+def moveRel(
+    xOffset: int | None = None,
+    yOffset: int | None = None,
+    duration: None = None,
+    tween: None = None,
+    logScreenshot: bool = False,
+    _pause: bool = True,
+    relative: bool = False
+) -> None:
+    '''
+    Move the mouse a relative amount.
+
+    `relative` parameter decides how the movement is executed.
+    -> `False`: New postion is calculated and absolute movement is used.
+    -> `True`: Uses API relative movement (can be inconsistent)
+    '''
     if not relative:
         x, y = position()
         if xOffset is None:
@@ -410,9 +573,10 @@ def moveRel(xOffset=None, yOffset=None, duration=None, tween=None, logScreenshot
         moveTo(x + xOffset, y + yOffset)
     else:
         # When using MOUSEEVENTF_MOVE for relative movement the results may be inconsistent.
-        # "Relative mouse motion is subject to the effects of the mouse speed and the two-mouse threshold values. A user
-        # sets these three values with the Pointer Speed slider of the Control Panel's Mouse Properties sheet. You can 
-        # obtain and set these values using the SystemParametersInfo function." 
+        # "Relative mouse motion is subject to the effects of the mouse speed and the two-mouse
+        # threshold values. A user sets these three values with the Pointer Speed slider of the
+        # Control Panel's Mouse Properties sheet. You can obtain and set these values using the
+        # SystemParametersInfo function."
         # https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-mouseinput
         # https://stackoverflow.com/questions/50601200/pyhon-directinput-mouse-relative-moving-act-not-as-expected
         extra = ctypes.c_ulong(0)
@@ -434,9 +598,16 @@ move = moveRel
 # Ignored parameters: logScreenshot
 # Missing feature: auto shift for special characters (ie. '!', '@', '#'...)
 @_genericPyDirectInputChecks
-def keyDown(key, logScreenshot=None, _pause=True):
-    if not key in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
-        return
+def keyDown(
+    key: str,
+    logScreenshot: None = None,
+    _pause: bool = True
+) -> bool:
+    '''
+    Press down `key`.
+    '''
+    if key not in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
+        return False
 
     keybdFlags = KEYEVENTF_SCANCODE
 
@@ -479,9 +650,16 @@ def keyDown(key, logScreenshot=None, _pause=True):
 # Ignored parameters: logScreenshot
 # Missing feature: auto shift for special characters (ie. '!', '@', '#'...)
 @_genericPyDirectInputChecks
-def keyUp(key, logScreenshot=None, _pause=True):
-    if not key in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
-        return
+def keyUp(
+    key: str,
+    logScreenshot: None = None,
+    _pause: bool = True
+) -> bool:
+    '''
+    Release key `key`.
+    '''
+    if key not in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
+        return False
 
     keybdFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP
 
@@ -515,7 +693,13 @@ def keyUp(key, logScreenshot=None, _pause=True):
         hexKeyCode = 0xE0
         extra = ctypes.c_ulong(0)
         ii_ = Input_I()
-        ii_.ki = KeyBdInput(0, hexKeyCode, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0, ctypes.pointer(extra))
+        ii_.ki = KeyBdInput(
+            0,
+            hexKeyCode,
+            KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+            0,
+            ctypes.pointer(extra)
+        )
         x = Input(ctypes.c_ulong(1), ii_)
         insertedEvents += SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
@@ -525,13 +709,22 @@ def keyUp(key, logScreenshot=None, _pause=True):
 # Ignored parameters: logScreenshot
 # nearly identical to PyAutoGUI's implementation
 @_genericPyDirectInputChecks
-def press(keys, presses=1, interval=0.0, logScreenshot=None, _pause=True):
-    if type(keys) == str:
+def press(
+    keys: str | list[str],
+    presses: int = 1,
+    interval: float = 0.0,
+    logScreenshot: None = None,
+    _pause: bool = True
+) -> bool | None:
+    '''
+    Press the collection of `keys` for `presses` amount of times.
+    '''
+    if isinstance(keys, str):
         if len(keys) > 1:
             keys = keys.lower()
         keys = [keys]  # If keys is 'enter', convert it to ['enter'].
     else:
-        lowerKeys = []
+        lowerKeys: list[str] = []
         for s in keys:
             if len(s) > 1:
                 lowerKeys.append(s.lower())
@@ -544,7 +737,7 @@ def press(keys, presses=1, interval=0.0, logScreenshot=None, _pause=True):
     expectedPresses = presses * len(keys)
     completedPresses = 0
 
-    for i in range(presses):
+    for _ in range(presses):
         for k in keys:
             failSafeCheck()
             downed = keyDown(k)
@@ -561,7 +754,15 @@ def press(keys, presses=1, interval=0.0, logScreenshot=None, _pause=True):
 # Ignored parameters: logScreenshot
 # nearly identical to PyAutoGUI's implementation
 @_genericPyDirectInputChecks
-def typewrite(message, interval=0.0, logScreenshot=None, _pause=True):
+def typewrite(
+    message: str,
+    interval: float = 0.0,
+    logScreenshot: None = None,
+    _pause: bool = True
+) -> None:
+    '''
+    Break down `message` into characters and press them one by one.
+    '''
     interval = float(interval)
     for c in message:
         if len(c) > 1:

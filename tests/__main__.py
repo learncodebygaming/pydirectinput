@@ -17,7 +17,7 @@ def trace_square():
 
 
 def mouse_return_accuracy():
-    # when the mouse is moved relative, and then reversed relative again, confirm 
+    # when the mouse is moved relative, and then reversed relative again, confirm
     # that the cursor returns to the same position
     pydirectinput.moveTo(300, 300)
     time.sleep(1)
@@ -34,7 +34,7 @@ def clicks_and_typing():
     time.sleep(0.05)
     pydirectinput.keyUp('g')
     time.sleep(0.05)
-    pydirectinput.press(['c','v','t'])
+    pydirectinput.press(['c', 'v', 't'])
     time.sleep(0.05)
     pydirectinput.typewrite('myword')
 
@@ -85,22 +85,18 @@ def relative_mouse():
 
 
 if __name__ == '__main__':
-    
+
     time.sleep(4)
-    #trace_square()
-    #time.sleep(1)
-    #mouse_return_accuracy()
-    #time.sleep(1)
-    #clicks_and_typing()
-    #time.sleep(6)
-    #wasd_movement()
-    #time.sleep(1)
-    #basic_click()
-    #time.sleep(6)
-    #arrow_keys()
+    # trace_square()
+    # time.sleep(1)
+    # mouse_return_accuracy()
+    # time.sleep(1)
+    # clicks_and_typing()
+    # time.sleep(6)
+    # wasd_movement()
+    # time.sleep(1)
+    # basic_click()
+    # time.sleep(6)
+    # arrow_keys()
     time.sleep(1)
     relative_mouse()
-
-    
-    
-
