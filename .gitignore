@@ -5,3 +5,4 @@ __pycache__
 /build
 /dist
 /publish_instructions.txt
+venv
