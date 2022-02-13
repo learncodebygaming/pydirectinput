@@ -13,7 +13,6 @@ SendInput = ctypes.windll.user32.SendInput
 MapVirtualKey = ctypes.windll.user32.MapVirtualKeyW
 
 # Constants for failsafe check and pause
-
 FAILSAFE = True
 FAILSAFE_POINTS = [(0, 0)]
 PAUSE = 0.01  # 1/100 second pause by default.
@@ -24,6 +23,11 @@ MIDDLE = "middle"
 RIGHT = "right"
 PRIMARY = "primary"
 SECONDARY = "secondary"
+
+# INPUT type constants
+INPUT_MOUSE = ctypes.c_ulong(0)
+INPUT_KEYBOARD = ctypes.c_ulong(1)
+INPUT_HARDWARE = ctypes.c_ulong(2)
 
 # Mouse Scan Code Mappings
 MOUSEEVENTF_MOVE = 0x0001
@@ -332,7 +336,7 @@ def mouseDown(
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()
     ii_.mi = MouseInput(0, 0, 0, ev, 0, ctypes.pointer(extra))
-    xi = Input(ctypes.c_ulong(0), ii_)
+    xi = Input(INPUT_MOUSE, ii_)
     SendInput(1, ctypes.pointer(xi), ctypes.sizeof(xi))
 
 
@@ -369,7 +373,7 @@ def mouseUp(
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()
     ii_.mi = MouseInput(0, 0, 0, ev, 0, ctypes.pointer(extra))
-    xi = Input(ctypes.c_ulong(0), ii_)
+    xi = Input(INPUT_MOUSE, ii_)
     SendInput(1, ctypes.pointer(xi), ctypes.sizeof(xi))
 
 
@@ -411,7 +415,7 @@ def click(
         extra = ctypes.c_ulong(0)
         ii_ = Input_I()
         ii_.mi = MouseInput(0, 0, 0, ev, 0, ctypes.pointer(extra))
-        xi: Input = Input(ctypes.c_ulong(0), ii_)
+        xi: Input = Input(INPUT_MOUSE, ii_)
         SendInput(1, ctypes.pointer(xi), ctypes.sizeof(xi))
 
         time.sleep(interval)
@@ -533,7 +537,7 @@ def moveTo(
             0,
             ctypes.pointer(extra)
         )
-        command = Input(ctypes.c_ulong(0), ii_)
+        command = Input(INPUT_MOUSE, ii_)
         SendInput(1, ctypes.pointer(command), ctypes.sizeof(command))
     else:
         currentX, currentY = position()
@@ -582,7 +586,7 @@ def moveRel(
         extra = ctypes.c_ulong(0)
         ii_ = Input_I()
         ii_.mi = MouseInput(xOffset, yOffset, 0, MOUSEEVENTF_MOVE, 0, ctypes.pointer(extra))
-        command = Input(ctypes.c_ulong(0), ii_)
+        command = Input(INPUT_MOUSE, ii_)
         SendInput(1, ctypes.pointer(command), ctypes.sizeof(command))
 
 
@@ -610,38 +614,20 @@ def keyDown(
         return False
 
     keybdFlags = KEYEVENTF_SCANCODE
+    hexKeyCode = KEYBOARD_MAPPING[key]
 
-    if KEYBOARD_MAPPING[key] >= 1024:
+    if hexKeyCode >= 1024 or key in ['up', 'left', 'down', 'right']:
         keybdFlags |= KEYEVENTF_EXTENDEDKEY
 
     # Init event tracking
     insertedEvents = 0
     expectedEvents = 1
 
-    # arrow keys need the extended key flag
-    if key in ['up', 'left', 'down', 'right']:
-        keybdFlags |= KEYEVENTF_EXTENDEDKEY
-        # if numlock is on and an arrow key is being pressed, we need to send an additional scancode
-        # https://stackoverflow.com/questions/14026496/sendinput-sends-num8-when-i-want-to-send-vk-up-how-come
-        # https://handmade.network/wiki/2823-keyboard_inputs_-_scancodes,_raw_input,_text_input,_key_names
-        if ctypes.windll.user32.GetKeyState(0x90):
-            # We need to press two keys, so we expect to have inserted 2 events when done
-            expectedEvents = 2
-            hexKeyCode = 0xE0
-            extra = ctypes.c_ulong(0)
-            ii_ = Input_I()
-            ii_.ki = KeyBdInput(0, hexKeyCode, KEYEVENTF_SCANCODE, 0, ctypes.pointer(extra))
-            x = Input(ctypes.c_ulong(1), ii_)
-
-            # SendInput returns the number of event successfully inserted into input stream
-            # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput#return-value
-            insertedEvents += SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
-
     hexKeyCode = KEYBOARD_MAPPING[key]
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()
     ii_.ki = KeyBdInput(0, hexKeyCode, keybdFlags, 0, ctypes.pointer(extra))
-    x = Input(ctypes.c_ulong(1), ii_)
+    x = Input(INPUT_KEYBOARD, ii_)
     insertedEvents += SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
     return insertedEvents == expectedEvents
@@ -662,46 +648,23 @@ def keyUp(
         return False
 
     keybdFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP
+    hexKeyCode = KEYBOARD_MAPPING[key]
 
-    if KEYBOARD_MAPPING[key] >= 1024:
+    if hexKeyCode >= 1024 or key in ['up', 'left', 'down', 'right']:
         keybdFlags |= KEYEVENTF_EXTENDEDKEY
 
     # Init event tracking
     insertedEvents = 0
     expectedEvents = 1
 
-    # arrow keys need the extended key flag
-    if key in ['up', 'left', 'down', 'right']:
-        keybdFlags |= KEYEVENTF_EXTENDEDKEY
-
-    hexKeyCode = KEYBOARD_MAPPING[key]
     extra = ctypes.c_ulong(0)
     ii_ = Input_I()
     ii_.ki = KeyBdInput(0, hexKeyCode, keybdFlags, 0, ctypes.pointer(extra))
-    x = Input(ctypes.c_ulong(1), ii_)
+    x = Input(INPUT_KEYBOARD, ii_)
 
     # SendInput returns the number of event successfully inserted into input stream
     # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput#return-value
     insertedEvents += SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
-
-    # if numlock is on and an arrow key is being pressed, we need to send an additional scancode
-    # https://stackoverflow.com/questions/14026496/sendinput-sends-num8-when-i-want-to-send-vk-up-how-come
-    # https://handmade.network/wiki/2823-keyboard_inputs_-_scancodes,_raw_input,_text_input,_key_names
-    if key in ['up', 'left', 'down', 'right'] and ctypes.windll.user32.GetKeyState(0x90):
-        # We need to press two keys, so we expect to have inserted 2 events when done
-        expectedEvents = 2
-        hexKeyCode = 0xE0
-        extra = ctypes.c_ulong(0)
-        ii_ = Input_I()
-        ii_.ki = KeyBdInput(
-            0,
-            hexKeyCode,
-            KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
-            0,
-            ctypes.pointer(extra)
-        )
-        x = Input(ctypes.c_ulong(1), ii_)
-        insertedEvents += SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
     return insertedEvents == expectedEvents
 
@@ -715,7 +678,7 @@ def press(
     interval: float = 0.0,
     logScreenshot: None = None,
     _pause: bool = True
-) -> bool | None:
+) -> bool:
     '''
     Press the collection of `keys` for `presses` amount of times.
     '''
