@@ -567,4 +567,16 @@ def typewrite(message, interval=0.0, logScreenshot=None, _pause=True):
 
 write = typewrite
 
-# Missing feature: hotkey functions
+# nearly identical to PyAutoGUI's implementation
+@_genericPyDirectInputChecks
+def hotKey(*args, interval=0.0):
+    for c in args:
+        if len(c) > 1:
+            c = c.lower()
+        keyDown(c)
+        time.sleep(interval)
+    for c in reversed(args):
+        if len(c) > 1:
+            c = c.lower()
+        keyUp(c)
+        time.sleep(interval)
