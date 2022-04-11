@@ -3,58 +3,265 @@ Partial implementation of DirectInput function calls to simulate
 mouse and keyboard inputs.
 '''
 
+# native imports
 import ctypes
 import functools
 import inspect
 import time
-from typing import Any, Callable, TypeVar
+from typing import (
+    TYPE_CHECKING, Any, Callable, Final, Literal, Sequence, TypeAlias, TypeVar,
+)
 
-SendInput = ctypes.windll.user32.SendInput
-MapVirtualKey = ctypes.windll.user32.MapVirtualKeyW
 
-# Constants for failsafe check and pause
-FAILSAFE = True
-FAILSAFE_POINTS = [(0, 0)]
-PAUSE = 0.01  # 1/100 second pause by default.
+if TYPE_CHECKING:
+    # https://github.com/python/mypy/issues/7540#issuecomment-845741357
+    POINTER_TYPE = ctypes.pointer
+else:
+    # Monkeypatch typed pointer from typeshed into ctypes
+    class pointer:
+        @classmethod
+        def __class_getitem__(cls, item):
+            return ctypes.POINTER(item)
+    POINTER_TYPE = pointer
+
+# ==================================================================================================
+# ===== External constants =========================================================================
+# ==================================================================================================
+
+# "Constants" for failsafe check and pause
+# Intendend to be modified by callers
+FAILSAFE: bool = True
+FAILSAFE_POINTS: list[tuple[int, int]] = [(0, 0)]
+PAUSE: float = 0.01  # 1/100 second pause by default.
+
+
+# ==================================================================================================
+# ===== Internal constants =========================================================================
+# ==================================================================================================
 
 # Constants for the mouse button names
-LEFT = "left"
-MIDDLE = "middle"
-RIGHT = "right"
-PRIMARY = "primary"
-SECONDARY = "secondary"
+_LEFT: Final[str] = "left"
+_MIDDLE: Final[str] = "middle"
+_RIGHT: Final[str] = "right"
+_PRIMARY: Final[str] = "primary"
+_SECONDARY: Final[str] = "secondary"
 
 # INPUT type constants
-INPUT_MOUSE = ctypes.c_ulong(0)
-INPUT_KEYBOARD = ctypes.c_ulong(1)
-INPUT_HARDWARE = ctypes.c_ulong(2)
+_INPUT_MOUSE: Literal[0x0000] = 0x0000  # ctypes.c_ulong(0x0000)
+_INPUT_KEYBOARD: Literal[0x0001] = 0x0001  # ctypes.c_ulong(0x0001)
+_INPUT_HARDWARE: Literal[0x0002] = 0x0002  # ctypes.c_ulong(0x0002)
 
 # Mouse Scan Code Mappings
-MOUSEEVENTF_MOVE = 0x0001
-MOUSEEVENTF_ABSOLUTE = 0x8000
-MOUSEEVENTF_LEFTDOWN = 0x0002
-MOUSEEVENTF_LEFTUP = 0x0004
-MOUSEEVENTF_LEFTCLICK = MOUSEEVENTF_LEFTDOWN + MOUSEEVENTF_LEFTUP
-MOUSEEVENTF_RIGHTDOWN = 0x0008
-MOUSEEVENTF_RIGHTUP = 0x0010
-MOUSEEVENTF_RIGHTCLICK = MOUSEEVENTF_RIGHTDOWN + MOUSEEVENTF_RIGHTUP
-MOUSEEVENTF_MIDDLEDOWN = 0x0020
-MOUSEEVENTF_MIDDLEUP = 0x0040
-MOUSEEVENTF_MIDDLECLICK = MOUSEEVENTF_MIDDLEDOWN + MOUSEEVENTF_MIDDLEUP
+_MOUSEEVENTF_MOVE: Literal[0x0001] = 0x0001  # ctypes.c_ulong(0x0001)
+_MOUSEEVENTF_ABSOLUTE: Literal[0x8000] = 0x8000  # ctypes.c_ulong(0x8000)
+_MOUSEEVENTF_WHEEL: Literal[0x0800] = 0x0800  # ctypes.c_ulong(0x0800)
+
+_MOUSEEVENTF_LEFTDOWN: Literal[0x0002] = 0x0002  # ctypes.c_ulong(0x0002)
+_MOUSEEVENTF_LEFTUP: Literal[0x0004] = 0x0004  # ctypes.c_ulong(0x0004)
+_MOUSEEVENTF_LEFTCLICK: Final[int] = (
+    _MOUSEEVENTF_LEFTDOWN + _MOUSEEVENTF_LEFTUP  # ctypes.c_ulong(0x0006)
+)
+_MOUSEEVENTF_RIGHTDOWN: Literal[0x0008] = 0x0008  # ctypes.c_ulong(0x0008)
+_MOUSEEVENTF_RIGHTUP: Literal[0x0010] = 0x0010  # ctypes.c_ulong(0x0010)
+_MOUSEEVENTF_RIGHTCLICK: Final[int] = (
+    _MOUSEEVENTF_RIGHTDOWN + _MOUSEEVENTF_RIGHTUP  # ctypes.c_ulong(0x0018)
+)
+_MOUSEEVENTF_MIDDLEDOWN: Literal[0x0020] = 0x0020  # ctypes.c_ulong(0x0020)
+_MOUSEEVENTF_MIDDLEUP: Literal[0x0040] = 0x0040  # ctypes.c_ulong(0x0040)
+_MOUSEEVENTF_MIDDLECLICK: Final[int] = (
+    _MOUSEEVENTF_MIDDLEDOWN + _MOUSEEVENTF_MIDDLEUP  # ctypes.c_ulong(0x0060)
+)
 
 # KeyBdInput Flags
-KEYEVENTF_EXTENDEDKEY = 0x0001
-KEYEVENTF_KEYUP = 0x0002
-KEYEVENTF_SCANCODE = 0x0008
-KEYEVENTF_UNICODE = 0x0004
+_KEYEVENTF_EXTENDEDKEY: Literal[0x0001] = 0x0001  # ctypes.c_ulong(0x0001)
+_KEYEVENTF_KEYUP: Literal[0x0002] = 0x0002  # ctypes.c_ulong(0x0002)
+_KEYEVENTF_UNICODE: Literal[0x0004] = 0x0004  # ctypes.c_ulong(0x0004)
+_KEYEVENTF_SCANCODE: Literal[0x0008] = 0x0008  # ctypes.c_ulong(0x0008)
 
 # MapVirtualKey Map Types
-MAPVK_VK_TO_CHAR = 2
-MAPVK_VK_TO_VSC = 0
-MAPVK_VSC_TO_VK = 1
-MAPVK_VSC_TO_VK_EX = 3
+_MAPVK_VK_TO_VSC: Literal[0] = 0  # ctypes.c_unit(0)
+_MAPVK_VSC_TO_VK: Literal[1] = 1  # ctypes.c_unit(1)
+_MAPVK_VK_TO_CHAR: Literal[2] = 2  # ctypes.c_unit(2)
+_MAPVK_VSC_TO_VK_EX: Literal[3] = 3  # ctypes.c_unit(3)
+_MAPVK_VK_TO_VSC_EX: Literal[4] = 4  # ctypes.c_unit(4)
 
-# Keyboard Scan Code Mappings
+# GetSystemMetrics nIndex arguments
+_SM_CXSCREEN: Literal[0] = 0
+_SM_CYSCREEN: Literal[1] = 1
+
+# ==================================================================================================
+# ===== C struct redefinitions =====================================================================
+# ==================================================================================================
+_PUL_PyType: TypeAlias = type[POINTER_TYPE[ctypes.c_ulong]]
+_PUL: _PUL_PyType = ctypes.POINTER(ctypes.c_ulong)
+
+
+class _KEYBDINPUT(ctypes.Structure):
+    wVk: int  # ctypes.c_ushort
+    wScan: int  # ctypes.c_ushort
+    dwFlags: int  # ctypes.c_ulong
+    time: int  # ctypes.c_ulong
+    dwExtraInfo: POINTER_TYPE[ctypes.c_ulong]
+    _fields_ = [("wVk", ctypes.c_ushort),
+                ("wScan", ctypes.c_ushort),
+                ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong),
+                ("dwExtraInfo", _PUL)]
+
+
+class _HARDWAREINPUT(ctypes.Structure):
+    uMsg: int  # ctypes.c_ulong
+    wParamL: int  # ctypes.c_short
+    wParamH: int  # ctypes.c_ushort
+    _fields_ = [("uMsg", ctypes.c_ulong),
+                ("wParamL", ctypes.c_short),
+                ("wParamH", ctypes.c_ushort)]
+
+
+class _MOUSEINPUT(ctypes.Structure):
+    dx: int  # ctypes.c_long
+    dy: int  # ctypes.c_long
+    mouseData: int  # ctypes.c_ulong
+    dwFlags: int  # ctypes.c_ulong
+    time: int  # ctypes.c_ulong
+    dwExtraInfo: POINTER_TYPE[ctypes.c_ulong]
+    _fields_ = [("dx", ctypes.c_long),
+                ("dy", ctypes.c_long),
+                ("mouseData", ctypes.c_ulong),
+                ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong),
+                ("dwExtraInfo", _PUL)]
+
+
+class _POINT(ctypes.Structure):
+    x: int  # ctypes.c_long
+    y: int  # ctypes.c_long
+    _fields_ = [("x", ctypes.c_long),
+                ("y", ctypes.c_long)]
+
+
+class _INPUT_UNION(ctypes.Union):
+    ki: _KEYBDINPUT
+    mi: _MOUSEINPUT
+    hi: _HARDWAREINPUT
+    _fields_ = [("ki", _KEYBDINPUT),
+                ("mi", _MOUSEINPUT),
+                ("hi", _HARDWAREINPUT)]
+
+
+class _INPUT(ctypes.Structure):
+    type: Literal[0, 1, 2]  # ctypes.c_ulong
+    ii: _INPUT_UNION
+    _anonymous_ = ('ii', )
+    _fields_ = [("type", ctypes.c_ulong),
+                ("ii", _INPUT_UNION)]
+
+
+# ==================================================================================================
+# ==== User32 functions ============================================================================
+# ==================================================================================================
+
+# ----- SendInput --------------------------------------------------------------
+_SendInput: Callable[
+    [
+        ctypes.c_uint,  # cInputs: ctypes.c_uint
+        POINTER_TYPE[_INPUT],  # pInputs: POINTER_TYPE[INPUT]
+        ctypes.c_int  # cbSize: ctypes.c_int
+    ],
+    int  # -> ctypes.c_uint
+] = ctypes.windll.user32.SendInput
+
+
+def send_input(
+    inputs: _INPUT | Sequence[_INPUT],
+) -> int:
+    '''
+    Abstraction layer over SendInput (winuser.h)
+
+    See https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput
+    '''
+    # prepare arguments
+    cInputs: ctypes.c_uint
+    __Inputs: ctypes.Array[_INPUT]
+    pInputs: POINTER_TYPE[_INPUT]
+    cbSize: ctypes.c_int
+    if isinstance(inputs, _INPUT):
+        # -> single element array
+        cInputs = ctypes.c_uint(1)
+        __Inputs = (_INPUT * 1)(inputs)
+    else:
+        cInputs = ctypes.c_uint(len(inputs))
+        __Inputs = (_INPUT * len(inputs))(*inputs)
+    pInputs = ctypes.pointer(__Inputs[0])
+    cbSize = ctypes.c_int(ctypes.sizeof(__Inputs))
+    # execute function
+    return _SendInput(cInputs, pInputs, cbSize)
+
+
+# ----- MapVirtualKeyW ---------------------------------------------------------
+_MapVirtualKeyW: Callable[
+    [
+        ctypes.c_uint,  # uCode: ctypes.c_uint
+        ctypes.c_uint  # uMapType: ctypes.c_uint
+    ],
+    int  # -> ctypes.c_uint
+] = ctypes.windll.user32.MapVirtualKeyW
+
+
+def map_virtual_key(
+    uCode: int,
+    uMapType: Literal[0, 1, 2, 3]
+) -> int:
+    '''
+    Abstraction layer over MapVirtualKeyW (winuser.h)
+
+    See https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mapvirtualkeyw
+    '''
+    return _MapVirtualKeyW(ctypes.c_uint(uCode), ctypes.c_uint(uMapType))
+
+
+# ----- GetSystemMetrics -------------------------------------------------------
+_GetSystemMetrics: Callable[
+    [
+        int  # nIndex: ctypes.c_int
+    ],
+    int  # -> ctypes.c_int
+] = ctypes.windll.user32.GetSystemMetrics
+
+
+def get_system_metrics(nIndex: int) -> int:
+    '''
+    Abstraction layer over GetSystemMetrics (winuser.h)
+
+    See https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getsystemmetrics
+    '''
+    return _GetSystemMetrics(nIndex)
+
+
+# ----- GetCursorPos -----------------------------------------------------------
+_GetCursorPos: Callable[
+    [
+        POINTER_TYPE[_POINT]  # lpPoint: ctypes.c_int
+    ],
+    bool  # -> ctypes.c_bool
+] = ctypes.windll.user32.GetCursorPos
+
+
+def get_cursor_pos() -> _POINT:
+    '''
+    Abstraction layer over GetCursorPos (winuser.h)
+
+    See https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getcursorpos
+    '''
+    cursor = _POINT()
+    _GetCursorPos(ctypes.pointer(cursor))
+    return cursor
+
+
+# ==================================================================================================
+# ===== Keyboard Scan Code Mappings ================================================================
+# ==================================================================================================
+
 KEYBOARD_MAPPING = {
     'escape': 0x01,
     'esc': 0x01,
@@ -172,59 +379,16 @@ KEYBOARD_MAPPING = {
     # arrow key scancodes can be different depending on the hardware,
     # so I think the best solution is to look it up based on the virtual key
     # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mapvirtualkeya?redirectedfrom=MSDN
-    'up': MapVirtualKey(0x26, MAPVK_VK_TO_VSC),
-    'left': MapVirtualKey(0x25, MAPVK_VK_TO_VSC),
-    'down': MapVirtualKey(0x28, MAPVK_VK_TO_VSC),
-    'right': MapVirtualKey(0x27, MAPVK_VK_TO_VSC),
+    'up': map_virtual_key(0x26, _MAPVK_VK_TO_VSC),
+    'left': map_virtual_key(0x25, _MAPVK_VK_TO_VSC),
+    'down': map_virtual_key(0x28, _MAPVK_VK_TO_VSC),
+    'right': map_virtual_key(0x27, _MAPVK_VK_TO_VSC),
 }
 
-# C struct redefinitions
 
-PUL = ctypes.POINTER(ctypes.c_ulong)
-
-
-class KeyBdInput(ctypes.Structure):
-    _fields_ = [("wVk", ctypes.c_ushort),
-                ("wScan", ctypes.c_ushort),
-                ("dwFlags", ctypes.c_ulong),
-                ("time", ctypes.c_ulong),
-                ("dwExtraInfo", PUL)]
-
-
-class HardwareInput(ctypes.Structure):
-    _fields_ = [("uMsg", ctypes.c_ulong),
-                ("wParamL", ctypes.c_short),
-                ("wParamH", ctypes.c_ushort)]
-
-
-class MouseInput(ctypes.Structure):
-    _fields_ = [("dx", ctypes.c_long),
-                ("dy", ctypes.c_long),
-                ("mouseData", ctypes.c_ulong),
-                ("dwFlags", ctypes.c_ulong),
-                ("time", ctypes.c_ulong),
-                ("dwExtraInfo", PUL)]
-
-
-class POINT(ctypes.Structure):
-    x: int
-    y: int
-    _fields_ = [("x", ctypes.c_long),
-                ("y", ctypes.c_long)]
-
-
-class Input_I(ctypes.Union):
-    _fields_ = [("ki", KeyBdInput),
-                ("mi", MouseInput),
-                ("hi", HardwareInput)]
-
-
-class Input(ctypes.Structure):
-    _fields_ = [("type", ctypes.c_ulong),
-                ("ii", Input_I)]
-
-
-# Fail Safe and Pause implementation
+# ==================================================================================================
+# ===== Fail Safe and Pause implementation =========================================================
+# ==================================================================================================
 
 class FailSafeException(Exception):
     pass
@@ -240,7 +404,7 @@ def failSafeCheck() -> None:
 
 
 def _handlePause(_pause: Any) -> None:
-    '''Pause the default amount of time if `_Pause=True` in function arguments'''
+    '''Pause the default amount of time if `_pause=True` in function arguments'''
     if _pause:
         assert isinstance(PAUSE, int) or isinstance(PAUSE, float)
         time.sleep(PAUSE)
@@ -255,16 +419,16 @@ def _genericPyDirectInputChecks(wrappedFunction: Callable[..., RT]) -> Callable[
     @functools.wraps(wrappedFunction)
     def wrapper(*args: Any, **kwargs: Any):
         funcArgs = inspect.getcallargs(wrappedFunction, *args, **kwargs)
-
         failSafeCheck()
         returnVal = wrappedFunction(*args, **kwargs)
         _handlePause(funcArgs.get("_pause"))
         return returnVal
-
     return wrapper
 
 
-# Helper Functions
+# ==================================================================================================
+# ===== Helper Functions ===========================================================================
+# ==================================================================================================
 
 def _to_windows_coordinates(x: int = 0, y: int = 0) -> tuple[int, int]:
     '''
@@ -286,8 +450,7 @@ def position(x: int | None = None, y: int | None = None) -> tuple[int, int]:
     '''
     Return the current mouse position as tuple (x, y).
     '''
-    cursor = POINT()
-    ctypes.windll.user32.GetCursorPos(ctypes.byref(cursor))
+    cursor = get_cursor_pos()
     return (x if x else cursor.x, y if y else cursor.y)
 
 
@@ -298,17 +461,19 @@ def size() -> tuple[int, int]:
     '''
     Return the display size as tuple (x, y).
     '''
-    return (ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1))
+    return (get_system_metrics(_SM_CXSCREEN), get_system_metrics(_SM_CYSCREEN))
 
 
-# Main Mouse Functions
+# ==================================================================================================
+# ===== Main Mouse Functions =======================================================================
+# ==================================================================================================
 
 # Ignored parameters: duration, tween, logScreenshot
 @_genericPyDirectInputChecks
 def mouseDown(
     x: int | None = None,
     y: int | None = None,
-    button: str = PRIMARY,
+    button: str = _PRIMARY,
     duration: float | None = None,
     tween: None = None,
     logScreenshot: bool = False,
@@ -320,13 +485,13 @@ def mouseDown(
     if x is not None or y is not None:
         moveTo(x, y)
 
-    ev = None
-    if button == PRIMARY or button == LEFT:
-        ev = MOUSEEVENTF_LEFTDOWN
-    elif button == MIDDLE:
-        ev = MOUSEEVENTF_MIDDLEDOWN
-    elif button == SECONDARY or button == RIGHT:
-        ev = MOUSEEVENTF_RIGHTDOWN
+    ev: int | None = None
+    if button == _PRIMARY or button == _LEFT:
+        ev = _MOUSEEVENTF_LEFTDOWN
+    elif button == _MIDDLE:
+        ev = _MOUSEEVENTF_MIDDLEDOWN
+    elif button == _SECONDARY or button == _RIGHT:
+        ev = _MOUSEEVENTF_RIGHTDOWN
 
     if not ev:
         raise ValueError(
@@ -334,10 +499,10 @@ def mouseDown(
         )
 
     extra = ctypes.c_ulong(0)
-    ii_ = Input_I()
-    ii_.mi = MouseInput(0, 0, 0, ev, 0, ctypes.pointer(extra))
-    xi = Input(INPUT_MOUSE, ii_)
-    SendInput(1, ctypes.pointer(xi), ctypes.sizeof(xi))
+    ii_ = _INPUT_UNION()
+    ii_.mi = _MOUSEINPUT(0, 0, 0, ev, 0, ctypes.pointer(extra))
+    xi = _INPUT(_INPUT_MOUSE, ii_)
+    send_input(xi)
 
 
 # Ignored parameters: duration, tween, logScreenshot
@@ -345,7 +510,7 @@ def mouseDown(
 def mouseUp(
     x: int | None = None,
     y: int | None = None,
-    button: str = PRIMARY,
+    button: str = _PRIMARY,
     duration: float | None = None,
     tween: None = None,
     logScreenshot: bool = False,
@@ -357,13 +522,13 @@ def mouseUp(
     if x is not None or y is not None:
         moveTo(x, y)
 
-    ev = None
-    if button == PRIMARY or button == LEFT:
-        ev = MOUSEEVENTF_LEFTUP
-    elif button == MIDDLE:
-        ev = MOUSEEVENTF_MIDDLEUP
-    elif button == SECONDARY or button == RIGHT:
-        ev = MOUSEEVENTF_RIGHTUP
+    ev: int | None = None
+    if button == _PRIMARY or button == _LEFT:
+        ev = _MOUSEEVENTF_LEFTUP
+    elif button == _MIDDLE:
+        ev = _MOUSEEVENTF_MIDDLEUP
+    elif button == _SECONDARY or button == _RIGHT:
+        ev = _MOUSEEVENTF_RIGHTUP
 
     if not ev:
         raise ValueError(
@@ -371,10 +536,10 @@ def mouseUp(
         )
 
     extra = ctypes.c_ulong(0)
-    ii_ = Input_I()
-    ii_.mi = MouseInput(0, 0, 0, ev, 0, ctypes.pointer(extra))
-    xi = Input(INPUT_MOUSE, ii_)
-    SendInput(1, ctypes.pointer(xi), ctypes.sizeof(xi))
+    ii_ = _INPUT_UNION()
+    ii_.mi = _MOUSEINPUT(0, 0, 0, ev, 0, ctypes.pointer(extra))
+    xi = _INPUT(_INPUT_MOUSE, ii_)
+    send_input(xi)
 
 
 # Ignored parameters: duration, tween, logScreenshot
@@ -384,7 +549,7 @@ def click(
     y: int | None = None,
     clicks: int = 1,
     interval: float = 0.0,
-    button: str = PRIMARY,
+    button: str = _PRIMARY,
     duration: float | None = None,
     tween: None = None,
     logScreenshot: bool = False,
@@ -396,13 +561,13 @@ def click(
     if x is not None or y is not None:
         moveTo(x, y)
 
-    ev = None
-    if button == PRIMARY or button == LEFT:
-        ev = MOUSEEVENTF_LEFTCLICK
-    elif button == MIDDLE:
-        ev = MOUSEEVENTF_MIDDLECLICK
-    elif button == SECONDARY or button == RIGHT:
-        ev = MOUSEEVENTF_RIGHTCLICK
+    ev: int | None = None
+    if button == _PRIMARY or button == _LEFT:
+        ev = _MOUSEEVENTF_LEFTCLICK
+    elif button == _MIDDLE:
+        ev = _MOUSEEVENTF_MIDDLECLICK
+    elif button == _SECONDARY or button == _RIGHT:
+        ev = _MOUSEEVENTF_RIGHTCLICK
 
     if not ev:
         raise ValueError(
@@ -413,11 +578,10 @@ def click(
         failSafeCheck()
 
         extra = ctypes.c_ulong(0)
-        ii_ = Input_I()
-        ii_.mi = MouseInput(0, 0, 0, ev, 0, ctypes.pointer(extra))
-        xi: Input = Input(INPUT_MOUSE, ii_)
-        SendInput(1, ctypes.pointer(xi), ctypes.sizeof(xi))
-
+        ii_ = _INPUT_UNION()
+        ii_.mi = _MOUSEINPUT(0, 0, 0, ev, 0, ctypes.pointer(extra))
+        xi: _INPUT = _INPUT(_INPUT_MOUSE, ii_)
+        send_input(xi)
         time.sleep(interval)
 
 
@@ -433,7 +597,7 @@ def leftClick(
     '''
     Click Left Mouse button.
     '''
-    click(x, y, 1, interval, LEFT, duration, tween, logScreenshot, _pause)
+    click(x, y, 1, interval, _LEFT, duration, tween, logScreenshot, _pause)
 
 
 def rightClick(
@@ -448,7 +612,7 @@ def rightClick(
     '''
     Click Right Mouse button.
     '''
-    click(x, y, 1, interval, RIGHT, duration, tween, logScreenshot, _pause)
+    click(x, y, 1, interval, _RIGHT, duration, tween, logScreenshot, _pause)
 
 
 def middleClick(
@@ -463,14 +627,14 @@ def middleClick(
     '''
     Click Middle Mouse button.
     '''
-    click(x, y, 1, interval, MIDDLE, duration, tween, logScreenshot, _pause)
+    click(x, y, 1, interval, _MIDDLE, duration, tween, logScreenshot, _pause)
 
 
 def doubleClick(
     x: int | None = None,
     y: int | None = None,
     interval: float = 0.0,
-    button: str = LEFT,
+    button: str = _LEFT,
     duration: float = 0.0,
     tween: None = None,
     logScreenshot: bool = False,
@@ -486,7 +650,7 @@ def tripleClick(
     x: int | None = None,
     y: int | None = None,
     interval: float = 0.0,
-    button: str = LEFT,
+    button: str = _LEFT,
     duration: float = 0.0,
     tween: None = None,
     logScreenshot: bool = False,
@@ -498,7 +662,34 @@ def tripleClick(
     click(x, y, 3, interval, button, duration, tween, logScreenshot, _pause)
 
 
-# Missing feature: scroll functions
+# Originally implemented by https://github.com/learncodebygaming/pydirectinput/pull/22
+# A negative number of clicks will scroll down and a positive number will scroll up
+@_genericPyDirectInputChecks
+def scroll(clicks: int = 0, interval: float = 0) -> None:
+    '''
+    Mouse scroll `clicks` number of times, waiting `interval` seconds between
+    every scroll.
+    '''
+    if clicks >= 0:
+        direction = 1
+    else:
+        direction = -1
+        clicks = abs(clicks)
+
+    for _ in range(clicks):
+        extra = ctypes.c_ulong(0)
+        ii_ = _INPUT_UNION()
+        ii_.mi = _MOUSEINPUT(
+            0,
+            0,
+            ctypes.c_ulong(direction * 120),
+            _MOUSEEVENTF_WHEEL,
+            0,
+            ctypes.pointer(extra)
+        )
+        x = _INPUT(ctypes.c_ulong(0), ii_)
+        send_input(x)
+        time.sleep(interval)
 
 
 # Ignored parameters: duration, tween, logScreenshot
@@ -528,17 +719,17 @@ def moveTo(
         x, y = position(x, y)
         x, y = _to_windows_coordinates(x, y)
         extra = ctypes.c_ulong(0)
-        ii_ = Input_I()
-        ii_.mi = MouseInput(
+        ii_ = _INPUT_UNION()
+        ii_.mi = _MOUSEINPUT(
             x,
             y,
             0,
-            (MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE),
+            (_MOUSEEVENTF_MOVE | _MOUSEEVENTF_ABSOLUTE),
             0,
             ctypes.pointer(extra)
         )
-        command = Input(INPUT_MOUSE, ii_)
-        SendInput(1, ctypes.pointer(command), ctypes.sizeof(command))
+        command = _INPUT(_INPUT_MOUSE, ii_)
+        send_input(command)
     else:
         currentX, currentY = position()
         if x is None or y is None:
@@ -584,10 +775,10 @@ def moveRel(
         # https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-mouseinput
         # https://stackoverflow.com/questions/50601200/pyhon-directinput-mouse-relative-moving-act-not-as-expected
         extra = ctypes.c_ulong(0)
-        ii_ = Input_I()
-        ii_.mi = MouseInput(xOffset, yOffset, 0, MOUSEEVENTF_MOVE, 0, ctypes.pointer(extra))
-        command = Input(INPUT_MOUSE, ii_)
-        SendInput(1, ctypes.pointer(command), ctypes.sizeof(command))
+        ii_ = _INPUT_UNION()
+        ii_.mi = _MOUSEINPUT(xOffset, yOffset, 0, _MOUSEEVENTF_MOVE, 0, ctypes.pointer(extra))
+        command = _INPUT(_INPUT_MOUSE, ii_)
+        send_input(command)
 
 
 move = moveRel
@@ -596,8 +787,9 @@ move = moveRel
 # Missing feature: drag functions
 
 
-# Keyboard Functions
-
+# ==================================================================================================
+# ===== Keyboard Functions =========================================================================
+# ==================================================================================================
 
 # Ignored parameters: logScreenshot
 # Missing feature: auto shift for special characters (ie. '!', '@', '#'...)
@@ -613,22 +805,21 @@ def keyDown(
     if key not in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
         return False
 
-    keybdFlags = KEYEVENTF_SCANCODE
+    keybdFlags: int = _KEYEVENTF_SCANCODE
     hexKeyCode = KEYBOARD_MAPPING[key]
 
     if hexKeyCode >= 1024 or key in ['up', 'left', 'down', 'right']:
-        keybdFlags |= KEYEVENTF_EXTENDEDKEY
+        keybdFlags |= _KEYEVENTF_EXTENDEDKEY
 
     # Init event tracking
     insertedEvents = 0
     expectedEvents = 1
 
-    hexKeyCode = KEYBOARD_MAPPING[key]
     extra = ctypes.c_ulong(0)
-    ii_ = Input_I()
-    ii_.ki = KeyBdInput(0, hexKeyCode, keybdFlags, 0, ctypes.pointer(extra))
-    x = Input(INPUT_KEYBOARD, ii_)
-    insertedEvents += SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+    ii_ = _INPUT_UNION()
+    ii_.ki = _KEYBDINPUT(0, hexKeyCode, keybdFlags, 0, ctypes.pointer(extra))
+    x = _INPUT(_INPUT_KEYBOARD, ii_)
+    insertedEvents += send_input(x)
 
     return insertedEvents == expectedEvents
 
@@ -647,24 +838,24 @@ def keyUp(
     if key not in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
         return False
 
-    keybdFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP
+    keybdFlags: int = _KEYEVENTF_SCANCODE | _KEYEVENTF_KEYUP
     hexKeyCode = KEYBOARD_MAPPING[key]
 
     if hexKeyCode >= 1024 or key in ['up', 'left', 'down', 'right']:
-        keybdFlags |= KEYEVENTF_EXTENDEDKEY
+        keybdFlags |= _KEYEVENTF_EXTENDEDKEY
 
     # Init event tracking
     insertedEvents = 0
     expectedEvents = 1
 
     extra = ctypes.c_ulong(0)
-    ii_ = Input_I()
-    ii_.ki = KeyBdInput(0, hexKeyCode, keybdFlags, 0, ctypes.pointer(extra))
-    x = Input(INPUT_KEYBOARD, ii_)
+    ii_ = _INPUT_UNION()
+    ii_.ki = _KEYBDINPUT(0, hexKeyCode, keybdFlags, 0, ctypes.pointer(extra))
+    x = _INPUT(_INPUT_KEYBOARD, ii_)
 
     # SendInput returns the number of event successfully inserted into input stream
     # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput#return-value
-    insertedEvents += SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+    insertedEvents += send_input(x)
 
     return insertedEvents == expectedEvents
 
@@ -737,4 +928,34 @@ def typewrite(
 
 write = typewrite
 
-# Missing feature: hotkey functions
+
+# Originally implemented by https://github.com/learncodebygaming/pydirectinput/pull/30
+# nearly identical to PyAutoGUI's implementation
+@_genericPyDirectInputChecks
+def hotKey(*args: str, interval: float = 0.0, wait: float = 0.0) -> None:
+    '''
+    Press down buttons in order they are specified as arguments,
+    releasing them in reverse order, e.g. 'ctrl', 'c' will first press
+    Control, then C and release C before releasing Control.
+
+    Use keyword-only argument `interval` to specify a delay between single
+    keys when pressing and releasing and `wait` for delay between last press
+    and first release.
+    '''
+    delay_key: bool = False
+    for c in args:
+        if delay_key:
+            time.sleep(interval)
+        delay_key = True
+        if len(c) > 1:
+            c = c.lower()
+        keyDown(c)
+    time.sleep(wait)
+    delay_key = False
+    for c in reversed(args):
+        if delay_key:
+            time.sleep(interval)
+        delay_key = True
+        if len(c) > 1:
+            c = c.lower()
+        keyUp(c)

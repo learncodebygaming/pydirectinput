@@ -1,5 +1,7 @@
+# native imports
 import time
 
+# local imports
 import pydirectinput
 
 
@@ -20,10 +22,13 @@ def mouse_return_accuracy():
     # when the mouse is moved relative, and then reversed relative again, confirm
     # that the cursor returns to the same position
     pydirectinput.moveTo(300, 300)
+    pos_start = pydirectinput.position()
     time.sleep(1)
     pydirectinput.move(100, 0)
     time.sleep(1)
     pydirectinput.move(-100, 0)
+    pos_end = pydirectinput.position()
+    print(f"{pos_start} == {pos_end}? {pos_start == pos_end}")
 
 
 def clicks_and_typing():
@@ -87,16 +92,24 @@ def relative_mouse():
 if __name__ == '__main__':
 
     time.sleep(4)
-    # trace_square()
-    # time.sleep(1)
-    # mouse_return_accuracy()
-    # time.sleep(1)
-    # clicks_and_typing()
-    # time.sleep(6)
-    # wasd_movement()
-    # time.sleep(1)
-    # basic_click()
-    # time.sleep(6)
-    # arrow_keys()
+    print("trace_square")
+    trace_square()
     time.sleep(1)
+    print("mouse_return_accuracy")
+    mouse_return_accuracy()
+    time.sleep(1)
+    print("clicks_and_typing")
+    clicks_and_typing()
+    time.sleep(1)
+    print("wasd_movement")
+    wasd_movement()
+    time.sleep(1)
+    print("basic_click")
+    basic_click()
+    time.sleep(1)
+    print("arrow_keys")
+    arrow_keys()
+    time.sleep(1)
+    print("relative_mouse")
     relative_mouse()
+    print("done")
