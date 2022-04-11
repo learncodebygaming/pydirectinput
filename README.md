@@ -1,3 +1,23 @@
+# pydirectinput_rgx
+
+This library is a fork of https://github.com/learncodebygaming/pydirectinput
+
+Changes to the fork include:
+
+* Fixes for extended key codes
+* adding flake8 linting
+* adding mypy type hinting and adding annotations (**This makes this fork Python >=3.10 only!**)
+* Adding a scroll function based on https://github.com/learncodebygaming/pydirectinput/pull/22
+* Adding a hotkey function based on https://github.com/learncodebygaming/pydirectinput/pull/30
+
+**This library uses in-line type annotations that require at least Python version 3.10 or higher and there are no plans to make the code backwards compatible to older Python versions!**
+
+See the old original README below.
+
+___
+___
+___
+
 # PyDirectInput
 
 This library aims to replicate the functionality of the PyAutoGUI mouse and keyboard inputs, but by utilizing DirectInput scan codes and the more modern SendInput() win32 function. PyAutoGUI uses Virtual Key Codes (VKs) and the deprecated mouse_event() and keybd_event() win32 functions. You may find that PyAutoGUI does not work in some applications, particularly in video games and other software that rely on DirectX. If you find yourself in that situation, give this library a try!
