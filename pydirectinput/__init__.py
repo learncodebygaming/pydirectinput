@@ -11,6 +11,7 @@ from ctypes import (
     POINTER, Array, Structure, Union, c_bool, c_int, c_long,
     c_short, c_uint, c_ulong, c_ushort, pointer, sizeof, windll,
 )
+from struct import unpack
 from typing import (
     TYPE_CHECKING, Any, Callable, Final, Literal,
     Protocol, Sequence, TypeAlias, TypeVar,
@@ -702,7 +703,7 @@ def _send_input(
     else:
         cInputs = c_uint(len(inputs))
         inputs_array = (_INPUT * len(inputs))(*inputs)
-    cbSize: c_int = c_int(sizeof(inputs_array))
+    cbSize: c_int = c_int(sizeof(_INPUT))
     # execute function
     # inputs_array will be automatically be referenced by pointer
     return _SendInput(cInputs, inputs_array, cbSize)
@@ -959,8 +960,10 @@ def _get_cursor_pos() -> _POINT:
 # ==============================================================================
 # ===== Keyboard Scan Code Mappings ============================================
 # ==============================================================================
+_OFFSET_EXTENDEDKEY: Literal[0x10000] = 0x10000
+_OFFSET_SHIFTKEY: Literal[0x20000] = 0x20000
 
-KEYBOARD_MAPPING = {
+KEYBOARD_MAPPING: dict[str, int] = {
     'escape': 0x01,
     'esc': 0x01,
     'f1': 0x3B,
@@ -994,19 +997,32 @@ KEYBOARD_MAPPING = {
     '0': 0x0B,
     '-': 0x0C,
     '=': 0x0D,
+    '~': 0x29 + _OFFSET_SHIFTKEY,
+    '!': 0x02 + _OFFSET_SHIFTKEY,
+    '@': 0x03 + _OFFSET_SHIFTKEY,
+    '#': 0x04 + _OFFSET_SHIFTKEY,
+    '$': 0x05 + _OFFSET_SHIFTKEY,
+    '%': 0x06 + _OFFSET_SHIFTKEY,
+    '^': 0x07 + _OFFSET_SHIFTKEY,
+    '&': 0x08 + _OFFSET_SHIFTKEY,
+    '*': 0x09 + _OFFSET_SHIFTKEY,
+    '(': 0x0A + _OFFSET_SHIFTKEY,
+    ')': 0x0B + _OFFSET_SHIFTKEY,
+    '_': 0x0C + _OFFSET_SHIFTKEY,
+    '+': 0x0D + _OFFSET_SHIFTKEY,
     'backspace': 0x0E,
-    'insert': 0xD2 + 1024,
-    'home': 0xC7 + 1024,
-    'pageup': 0xC9 + 1024,
-    'pagedown': 0xD1 + 1024,
+    'insert': 0xD2 + _OFFSET_EXTENDEDKEY,
+    'home': 0xC7 + _OFFSET_EXTENDEDKEY,
+    'pageup': 0xC9 + _OFFSET_EXTENDEDKEY,
+    'pagedown': 0xD1 + _OFFSET_EXTENDEDKEY,
     # numpad
     'numlock': 0x45,
-    'divide': 0xB5 + 1024,
+    'divide': 0xB5 + _OFFSET_EXTENDEDKEY,
     'multiply': 0x37,
     'subtract': 0x4A,
     'add': 0x4E,
     'decimal': 0x53,
-    'numpadenter': 0x9C + 1024,
+    'numpadenter': 0x9C + _OFFSET_EXTENDEDKEY,
     'numpad1': 0x4F,
     'numpad2': 0x50,
     'numpad3': 0x51,
@@ -1019,6 +1035,7 @@ KEYBOARD_MAPPING = {
     'numpad0': 0x52,
     # end numpad
     'tab': 0x0F,
+    '\t': 0x0F,
     'q': 0x10,
     'w': 0x11,
     'e': 0x12,
@@ -1032,9 +1049,22 @@ KEYBOARD_MAPPING = {
     '[': 0x1A,
     ']': 0x1B,
     '\\': 0x2B,
-    'del': 0xD3 + 1024,
-    'delete': 0xD3 + 1024,
-    'end': 0xCF + 1024,
+    'Q': 0x10 + _OFFSET_SHIFTKEY,
+    'W': 0x11 + _OFFSET_SHIFTKEY,
+    'E': 0x12 + _OFFSET_SHIFTKEY,
+    'R': 0x13 + _OFFSET_SHIFTKEY,
+    'T': 0x14 + _OFFSET_SHIFTKEY,
+    'Y': 0x15 + _OFFSET_SHIFTKEY,
+    'U': 0x16 + _OFFSET_SHIFTKEY,
+    'I': 0x17 + _OFFSET_SHIFTKEY,
+    'O': 0x18 + _OFFSET_SHIFTKEY,
+    'P': 0x19 + _OFFSET_SHIFTKEY,
+    '{': 0x1A + _OFFSET_SHIFTKEY,
+    '}': 0x1B + _OFFSET_SHIFTKEY,
+    '|': 0x2B + _OFFSET_SHIFTKEY,
+    'del': 0xD3 + _OFFSET_EXTENDEDKEY,
+    'delete': 0xD3 + _OFFSET_EXTENDEDKEY,
+    'end': 0xCF + _OFFSET_EXTENDEDKEY,
     'capslock': 0x3A,
     'a': 0x1E,
     's': 0x1F,
@@ -1047,8 +1077,20 @@ KEYBOARD_MAPPING = {
     'l': 0x26,
     ';': 0x27,
     "'": 0x28,
+    'A': 0x1E + _OFFSET_SHIFTKEY,
+    'S': 0x1F + _OFFSET_SHIFTKEY,
+    'D': 0x20 + _OFFSET_SHIFTKEY,
+    'F': 0x21 + _OFFSET_SHIFTKEY,
+    'G': 0x22 + _OFFSET_SHIFTKEY,
+    'H': 0x23 + _OFFSET_SHIFTKEY,
+    'J': 0x24 + _OFFSET_SHIFTKEY,
+    'K': 0x25 + _OFFSET_SHIFTKEY,
+    'L': 0x26 + _OFFSET_SHIFTKEY,
+    ':': 0x27 + _OFFSET_SHIFTKEY,
+    '"': 0x28 + _OFFSET_SHIFTKEY,
     'enter': 0x1C,
     'return': 0x1C,
+    '\n': 0x1C,
     'shift': 0x2A,
     'shiftleft': 0x2A,
     'z': 0x2C,
@@ -1061,27 +1103,85 @@ KEYBOARD_MAPPING = {
     ',': 0x33,
     '.': 0x34,
     '/': 0x35,
+    'Z': 0x2C + _OFFSET_SHIFTKEY,
+    'X': 0x2D + _OFFSET_SHIFTKEY,
+    'C': 0x2E + _OFFSET_SHIFTKEY,
+    'V': 0x2F + _OFFSET_SHIFTKEY,
+    'B': 0x30 + _OFFSET_SHIFTKEY,
+    'N': 0x31 + _OFFSET_SHIFTKEY,
+    'M': 0x32 + _OFFSET_SHIFTKEY,
+    '<': 0x33 + _OFFSET_SHIFTKEY,
+    '>': 0x34 + _OFFSET_SHIFTKEY,
+    '?': 0x35 + _OFFSET_SHIFTKEY,
     'shiftright': 0x36,
     'ctrl': 0x1D,
     'ctrlleft': 0x1D,
-    'win': 0xDB + 1024,
-    'winleft': 0xDB + 1024,
+    'win': 0xDB + _OFFSET_EXTENDEDKEY,
+    'winleft': 0x5B + _OFFSET_EXTENDEDKEY,
     'alt': 0x38,
     'altleft': 0x38,
     ' ': 0x39,
     'space': 0x39,
-    'altright': 0xB8 + 1024,
-    'winright': 0xDC + 1024,
-    'apps': 0xDD + 1024,
-    'ctrlright': 0x9D + 1024,
+    'altright': 0xB8 + _OFFSET_EXTENDEDKEY,
+    'winright': 0x5C + _OFFSET_EXTENDEDKEY,
+    'apps': 0x5D + _OFFSET_EXTENDEDKEY,
+    'context': 0x5D + _OFFSET_EXTENDEDKEY,
+    'contextmenu': 0x5D + _OFFSET_EXTENDEDKEY,
+    'ctrlright': 0x9D + _OFFSET_EXTENDEDKEY,
+    # Originally from learncodebygaming/pydirectinput:
     # arrow key scancodes can be different depending on the hardware,
     # so I think the best solution is to look it up based on the virtual key
-    # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mapvirtualkeya?redirectedfrom=MSDN
-    'up': _map_virtual_key(0x26, _MAPVK_VK_TO_VSC),
-    'left': _map_virtual_key(0x25, _MAPVK_VK_TO_VSC),
-    'down': _map_virtual_key(0x28, _MAPVK_VK_TO_VSC),
-    'right': _map_virtual_key(0x27, _MAPVK_VK_TO_VSC),
+    # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mapvirtualkeya
+    'up': _map_virtual_key(0x26, _MAPVK_VK_TO_VSC) + _OFFSET_EXTENDEDKEY,
+    'left': _map_virtual_key(0x25, _MAPVK_VK_TO_VSC) + _OFFSET_EXTENDEDKEY,
+    'down': _map_virtual_key(0x28, _MAPVK_VK_TO_VSC) + _OFFSET_EXTENDEDKEY,
+    'right': _map_virtual_key(0x27, _MAPVK_VK_TO_VSC) + _OFFSET_EXTENDEDKEY,
+    # While forking the original repository and working on the code,
+    # I'm starting to doubt this still holds true.
+    # As far as I can see, arrow keys are just the Numpad scancodes for Num
+    # 2, 4, 6, and 8 with EXTENDEDKEY flag.
+    # In fact, looking up the virtual key codes will just return the very same
+    # scancodes the Numpad keys occupy.
+    'medianext': 0x19 + _OFFSET_EXTENDEDKEY,
+    'mediaprevious': 0x10 + _OFFSET_EXTENDEDKEY,
+    'mediastop': 0x24 + _OFFSET_EXTENDEDKEY,
+    'mediaplay': 0x22 + _OFFSET_EXTENDEDKEY,
+    'mediapause': 0x22 + _OFFSET_EXTENDEDKEY,
+    'mute': 0x20 + _OFFSET_EXTENDEDKEY,
+    'volumeup': 0x30 + _OFFSET_EXTENDEDKEY,
+    'volup': 0x30 + _OFFSET_EXTENDEDKEY,
+    'volumedown': 0x2E + _OFFSET_EXTENDEDKEY,
+    'voldown': 0x2E + _OFFSET_EXTENDEDKEY,
+    'mediaselect': 0x6D + _OFFSET_EXTENDEDKEY,
+    'email': 0x6C + _OFFSET_EXTENDEDKEY,
+    'calculator': 0x21 + _OFFSET_EXTENDEDKEY,
+    'calc': 0x21 + _OFFSET_EXTENDEDKEY,
+    'launch1': 0x6B + _OFFSET_EXTENDEDKEY,
+    'launch2': 0x21 + _OFFSET_EXTENDEDKEY,
+    'browsersearch': 0x65 + _OFFSET_EXTENDEDKEY,
+    'browserhome': 0x32 + _OFFSET_EXTENDEDKEY,
+    'browserforward': 0x69 + _OFFSET_EXTENDEDKEY,
+    'browserback': 0x6A + _OFFSET_EXTENDEDKEY,
+    'browserstop': 0x68 + _OFFSET_EXTENDEDKEY,
+    'browserrefresh': 0x67 + _OFFSET_EXTENDEDKEY,
+    'browserfavorites': 0x66 + _OFFSET_EXTENDEDKEY,
+    'f13': 0x64,
+    'f14': 0x65,
+    'f15': 0x66,
+    'f16': 0x67,
+    'f17': 0x68,
+    'f18': 0x69,
+    'f19': 0x6A,
+    'f20': 0x6B,
+    'f21': 0x6C,
+    'f22': 0x6D,
+    'f23': 0x6E,
+    'f24': 0x76,
 }
+'''
+Maps a string representation of keyboard keys to their corresponding hardware
+scan code. Based on standard US QWERTY-Layout.
+'''
 
 
 # ==============================================================================
@@ -1184,6 +1284,18 @@ def _get_mouse_struct_data(
     return event_value, mouseData
 
 
+def _normalize_key(
+    key: str,
+    *,
+    auto_shift: bool = False
+) -> str:
+    '''
+    return a lowercase representation of `key` if key is longer than one
+    character or automatic shifting is disabled (default).
+    '''
+    return key.lower() if (len(key) > 1 or not auto_shift) else key
+
+
 # ==============================================================================
 # ===== Main Mouse Functions ===================================================
 # ==============================================================================
@@ -1215,7 +1327,10 @@ def mouseDown(
             f'"right", not {button}'
         )
 
-    input_struct = _create_mouse_input(mouseData=mouseData, dwFlags=event_value)
+    input_struct = _create_mouse_input(
+        mouseData=mouseData,
+        dwFlags=event_value
+    )
 
     _send_input(input_struct)
 
@@ -1247,7 +1362,10 @@ def mouseUp(
             f'"right", not {button}'
         )
 
-    input_struct = _create_mouse_input(mouseData=mouseData, dwFlags=event_value)
+    input_struct = _create_mouse_input(
+        mouseData=mouseData,
+        dwFlags=event_value
+    )
 
     _send_input(input_struct)
 
@@ -1284,7 +1402,10 @@ def click(
     for _ in range(clicks):
         _failSafeCheck()
 
-        input_struct = _create_mouse_input(mouseData=mouseData, dwFlags=event_value)
+        input_struct = _create_mouse_input(
+            mouseData=mouseData,
+            dwFlags=event_value
+        )
 
         _send_input(input_struct)
         time.sleep(interval)
@@ -1302,7 +1423,17 @@ def leftClick(
     '''
     Click Left Mouse button.
     '''
-    click(x, y, 1, interval, MOUSE_LEFT, duration, tween, logScreenshot, _pause)
+    click(
+        x,
+        y,
+        clicks=1,
+        interval=interval,
+        button=MOUSE_LEFT,
+        duration=duration,
+        tween=tween,
+        logScreenshot=logScreenshot,
+        _pause=_pause
+    )
 
 
 def rightClick(
@@ -1317,7 +1448,17 @@ def rightClick(
     '''
     Click Right Mouse button.
     '''
-    click(x, y, 1, interval, MOUSE_RIGHT, duration, tween, logScreenshot, _pause)
+    click(
+        x,
+        y,
+        clicks=1,
+        interval=interval,
+        button=MOUSE_RIGHT,
+        duration=duration,
+        tween=tween,
+        logScreenshot=logScreenshot,
+        _pause=_pause
+    )
 
 
 def middleClick(
@@ -1332,7 +1473,17 @@ def middleClick(
     '''
     Click Middle Mouse button.
     '''
-    click(x, y, 1, interval, MOUSE_MIDDLE, duration, tween, logScreenshot, _pause)
+    click(
+        x,
+        y,
+        clicks=1,
+        interval=interval,
+        button=MOUSE_MIDDLE,
+        duration=duration,
+        tween=tween,
+        logScreenshot=logScreenshot,
+        _pause=_pause
+    )
 
 
 def doubleClick(
@@ -1348,7 +1499,17 @@ def doubleClick(
     '''
     Double click `button`.
     '''
-    click(x, y, 2, interval, button, duration, tween, logScreenshot, _pause)
+    click(
+        x,
+        y,
+        clicks=2,
+        interval=interval,
+        button=button,
+        duration=duration,
+        tween=tween,
+        logScreenshot=logScreenshot,
+        _pause=_pause
+    )
 
 
 def tripleClick(
@@ -1364,7 +1525,17 @@ def tripleClick(
     '''
     Triple click `button`.
     '''
-    click(x, y, 3, interval, button, duration, tween, logScreenshot, _pause)
+    click(
+        x,
+        y,
+        clicks=3,
+        interval=interval,
+        button=button,
+        duration=duration,
+        tween=tween,
+        logScreenshot=logScreenshot,
+        _pause=_pause
+    )
 
 
 # Originally implemented by
@@ -1513,30 +1684,49 @@ move = moveRel
 def keyDown(
     key: str,
     logScreenshot: None = None,
-    _pause: bool = True
+    _pause: bool = True,
+    *,
+    auto_shift: bool = False
 ) -> bool:
     '''
     Press down `key`.
+
+    `key` will be interpreted as a keyboard key (US QWERTY).
+    The actually pressed key will depend on your system keyboard layout.
+    Limits the available character set but should provide the best
+    compatibility.
     '''
     if key not in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
         return False
 
     keybdFlags: int = _KEYEVENTF_SCANCODE
     hexKeyCode = KEYBOARD_MAPPING[key]
-
-    if hexKeyCode >= 1024 or key in ['up', 'left', 'down', 'right']:
-        keybdFlags |= _KEYEVENTF_EXTENDEDKEY
+    input_structs: list[_INPUT] = []
 
     # Init event tracking
     insertedEvents = 0
-    expectedEvents = 1
+    expectedEvents = 0
 
-    input_struct = _create_keyboard_input(
-        wScan=hexKeyCode,
+    if auto_shift and hexKeyCode & _OFFSET_SHIFTKEY:
+        input_structs += [_create_keyboard_input(
+            wScan=KEYBOARD_MAPPING['shift'],
+            dwFlags=keybdFlags
+        )]
+        expectedEvents += 1
+
+    if hexKeyCode & _OFFSET_EXTENDEDKEY:
+        keybdFlags |= _KEYEVENTF_EXTENDEDKEY
+
+    input_structs += [_create_keyboard_input(
+        wScan=hexKeyCode & 0xFFFF,
         dwFlags=keybdFlags
-    )
-    insertedEvents += _send_input(input_struct)
+    )]
+    expectedEvents += 1
+    insertedEvents += _send_input(input_structs)
 
+    # SendInput returns the number of event successfully inserted into
+    # input stream
+    # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput#return-value
     return insertedEvents == expectedEvents
 
 
@@ -1546,79 +1736,274 @@ def keyDown(
 def keyUp(
     key: str,
     logScreenshot: None = None,
-    _pause: bool = True
+    _pause: bool = True,
+    *,
+    auto_shift: bool = False
 ) -> bool:
     '''
     Release key `key`.
+
+    `key` will be interpreted as a keyboard key (US QWERTY).
+    The actually pressed key will depend on your system keyboard layout.
+    Limits the available character set but should provide the best
+    compatibility.
     '''
     if key not in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
         return False
 
     keybdFlags: int = _KEYEVENTF_SCANCODE | _KEYEVENTF_KEYUP
     hexKeyCode = KEYBOARD_MAPPING[key]
-
-    if hexKeyCode >= 1024 or key in ['up', 'left', 'down', 'right']:
-        keybdFlags |= _KEYEVENTF_EXTENDEDKEY
+    input_structs: list[_INPUT] = []
 
     # Init event tracking
     insertedEvents = 0
-    expectedEvents = 1
+    expectedEvents = 0
 
-    input_struct = _create_keyboard_input(
-        wScan=hexKeyCode,
+    if auto_shift and hexKeyCode & _OFFSET_SHIFTKEY:
+        input_structs += [_create_keyboard_input(
+            wScan=KEYBOARD_MAPPING['shift'],
+            dwFlags=keybdFlags
+        )]
+        expectedEvents += 1
+
+    if hexKeyCode & _OFFSET_EXTENDEDKEY:
+        keybdFlags |= _KEYEVENTF_EXTENDEDKEY
+
+    input_structs += [_create_keyboard_input(
+        wScan=hexKeyCode & 0xFFFF,
         dwFlags=keybdFlags
-    )
-
-    # SendInput returns the number of event successfully inserted into
-    # input stream
-    # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput#return-value
-    insertedEvents += _send_input(input_struct)
+    )]
+    expectedEvents += 1
+    insertedEvents += _send_input(input_structs)
 
     return insertedEvents == expectedEvents
+
+
+def _helper_press_key(
+    key: str,
+    duration: float = 0.0,
+    auto_shift: bool = False
+) -> bool:
+    '''
+    Press `key`, wait for `duration` seconds, release `key`.
+
+    Return `True` if complete press was successful.
+    '''
+    _failSafeCheck()
+    downed = keyDown(key, auto_shift=auto_shift)
+    time.sleep(duration)
+    upped = keyUp(key, auto_shift=auto_shift)
+    # Count key press as complete if key was "downed" and "upped"
+    # successfully
+    return bool(downed and upped)
 
 
 # Ignored parameters: logScreenshot
 # nearly identical to PyAutoGUI's implementation
 @_genericPyDirectInputChecks
 def press(
-    keys: str | list[str],
+    keys: str | Sequence[str],
     presses: int = 1,
     interval: float = 0.0,
     logScreenshot: None = None,
-    _pause: bool = True
+    _pause: bool = True,
+    *,
+    auto_shift: bool = False,
+    delay: float = 0.0,
+    duration: float = 0.0
 ) -> bool:
     '''
-    Press the collection of `keys` for `presses` amount of times.
+    Press the sequence of `keys` for `presses` amount of times.
+
+    `keys` will be interpreted as sequence of keyboard keys (US QWERTY).
+    The actually pressed key will depend on your system keyboard layout.
+    Limits the available character set but should provide the best
+    compatibility.
+
+    Explanation of time parameters (seconds as floating point numbers):
+
+    - `interval` is the time spent waiting between sequences. If `keys` is a
+    str instance or single element list, then `interval` will be ignored.
+    - `delay` is the time from one complete key (press+release) to the next one
+    in the same sequence. If there is only a single key in a sequence, then
+    `delay` will be ignored.
+    - `duration` is the time spent on holding every key before releasing it
+    again.
+
+    Be aware, that the global pause defined by the PAUSE `constant` only applies
+    after every call to this function, not inbetween!
     '''
     if isinstance(keys, str):
-        if len(keys) > 1:
-            keys = keys.lower()
         keys = [keys]  # If keys is 'enter', convert it to ['enter'].
-    else:
-        lowerKeys: list[str] = []
-        for s in keys:
-            if len(s) > 1:
-                lowerKeys.append(s.lower())
-            else:
-                lowerKeys.append(s)
-        keys = lowerKeys
+    keys = [_normalize_key(key, auto_shift=auto_shift) for key in keys]
     interval = float(interval)
 
     # We need to press x keys y times, which comes out to x*y presses in total
     expectedPresses = presses * len(keys)
     completedPresses = 0
 
+    apply_interval: bool = False
     for _ in range(presses):
-        for k in keys:
-            _failSafeCheck()
-            downed = keyDown(k)
-            upped = keyUp(k)
-            # Count key press as complete if key was "downed" and "upped"
-            # successfully
-            if downed and upped:
-                completedPresses += 1
+        if apply_interval:  # Don't delay first press
+            time.sleep(interval)
 
-        time.sleep(interval)
+        for k in keys:
+            apply_delay: bool = False
+            if apply_delay:  # Don't delay first press
+                time.sleep(delay)
+
+            completedPresses += _helper_press_key(
+                k,
+                duration,
+                auto_shift=auto_shift
+            )
+
+            apply_delay = True
+        apply_interval = True
+
+    return completedPresses == expectedPresses
+
+
+def _helper_unicode_press_char(char: str, duration: float = 0.0) -> bool:
+    '''
+    Press `key`, wait for `duration` seconds, release `key`.
+
+    Return `True` if complete press was successful.
+    '''
+    _failSafeCheck()
+    downed = unicode_charDown(char)
+    time.sleep(duration)
+    upped = unicode_charUp(char)
+    # Count key press as complete if key was "downed" and "upped"
+    # successfully
+    return bool(downed and upped)
+
+
+@_genericPyDirectInputChecks
+def unicode_charDown(
+    char: str,
+    logScreenshot: None = None,
+    _pause: bool = True
+) -> bool:
+    '''
+    Send Unicode character(s) `char` to currently focused application as
+    WM_KEYDOWN message.
+
+    `char` will be interpreted as a string of Unicode characters
+    (independet from keyboard layout). Supports complete Unicode character set
+    but may not be compatible with every application.
+    '''
+    utf16surrogates = char.encode('utf-16be')
+    codes = unpack(f'>{len(utf16surrogates)//2}H', utf16surrogates)
+    print(codes)
+    print([hex(c) for c in codes])
+
+    keybdFlags: int = _KEYEVENTF_UNICODE
+
+    input_structs = [
+        _create_keyboard_input(
+            wVk=0,
+            wScan=charcode,
+            dwFlags=keybdFlags
+        )
+        for charcode in codes
+    ]
+    # Init event tracking
+    expectedEvents = len(input_structs)
+    insertedEvents = _send_input(input_structs)
+
+    return insertedEvents == expectedEvents
+
+
+@_genericPyDirectInputChecks
+def unicode_charUp(
+    char: str,
+    logScreenshot: None = None,
+    _pause: bool = True
+) -> bool:
+    '''
+    Send Unicode character(s) `char` to currently focused application as
+    WM_KEYUP message.
+
+    `char` will be interpreted as a string of Unicode characters
+    (independet from keyboard layout). Supports complete Unicode character set
+    but may not be compatible with every application.
+    '''
+    utf16surrogates = char.encode('utf-16be')
+    codes = unpack(f'>{len(utf16surrogates)//2}H', utf16surrogates)
+    print(codes)
+    print([hex(c) for c in codes])
+
+    keybdFlags: int = _KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP
+
+    input_structs = [
+        _create_keyboard_input(
+            wVk=0,
+            wScan=charcode,
+            dwFlags=keybdFlags
+        )
+        for charcode in codes
+    ]
+    # Init event tracking
+    expectedEvents = len(input_structs)
+    insertedEvents = _send_input(input_structs)
+
+    return insertedEvents == expectedEvents
+
+
+@_genericPyDirectInputChecks
+def unicode_press(
+    chars: str | Sequence[str],
+    presses: int = 1,
+    interval: float = 0.0,
+    logScreenshot: None = None,
+    _pause: bool = True,
+    *,
+    delay: float = 0.0,
+    duration: float = 0.0
+) -> bool:
+    '''
+    Press the sequence of `chars` for `presses` amount of times.
+
+    `chars` will be interpreted as a sequence of Unicode characters
+    (independet from keyboard layout). Supports complete Unicode character set
+    but may not be compatible with every application.
+
+    Explanation of time parameters (seconds as floating point numbers):
+
+    - `interval` is the time spent waiting between sequences. If `chars` is a
+    str instance or single element list, then `interval` will be ignored.
+    - `delay` is the time from one complete char (press+release) to the next one
+    in the same sequence. If there is only a single char in a sequence, then
+    `delay` will be ignored.
+    - `duration` is the time spent on holding every char before releasing it
+    again.
+
+    Be aware, that the global pause defined by the PAUSE `constant` only applies
+    after every call to this function, not inbetween!
+    '''
+    if isinstance(chars, str):
+        chars = [chars]
+    interval = float(interval)
+
+    # We need to press x keys y times, which comes out to x*y presses in total
+    expectedPresses = presses * len(chars)
+    completedPresses = 0
+
+    apply_interval: bool = False
+    for _ in range(presses):
+        if apply_interval:  # Don't delay first press
+            time.sleep(interval)
+
+        for c in chars:
+            apply_delay: bool = False
+            if apply_delay:  # Don't delay first press
+                time.sleep(delay)
+
+            completedPresses += _helper_unicode_press_char(c, duration)
+
+            apply_delay = True
+        apply_interval = True
 
     return completedPresses == expectedPresses
 
@@ -1630,21 +2015,63 @@ def typewrite(
     message: str,
     interval: float = 0.0,
     logScreenshot: None = None,
-    _pause: bool = True
+    _pause: bool = True,
+    *,
+    auto_shift: bool = False,
+    delay: float = 0.0,
+    duration: float = 0.0
+) -> None:
+    '''
+    Break down `message` into keys and press them one by one.
+
+    `message` will be interpreted as sequence of keyboard keys (US QWERTY).
+    The actually pressed keys will depend on your system keyboard layout.
+    Limits the available character set but should provide the best
+    compatibility.
+    '''
+    interval = float(interval)
+    for char in message:
+        if len(char) > 1:
+            char = char.lower()
+        press(
+            char,
+            _pause=False,
+            auto_shift=auto_shift,
+            delay=delay,
+            duration=duration
+        )
+        time.sleep(interval)
+        _failSafeCheck()
+
+
+@_genericPyDirectInputChecks
+def unicode_typewrite(
+    message: str,
+    interval: float = 0.0,
+    logScreenshot: None = None,
+    _pause: bool = True,
+    *,
+    delay: float = 0.0,
+    duration: float = 0.0
 ) -> None:
     '''
     Break down `message` into characters and press them one by one.
+
+    `message` will be interpreted as a sequence of Unicode characters
+    (independet from keyboard layout). Supports complete Unicode character set
+    but may not be compatible with every application.
     '''
     interval = float(interval)
-    for c in message:
-        if len(c) > 1:
-            c = c.lower()
-        press(c, _pause=False)
+    for char in message:
+        if len(char) > 1:
+            char = char.lower()
+        unicode_press(char, _pause=False, delay=delay, duration=duration)
         time.sleep(interval)
         _failSafeCheck()
 
 
 write = typewrite
+unicode_write = unicode_typewrite
 
 
 # Originally implemented by
