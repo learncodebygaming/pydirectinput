@@ -5,10 +5,14 @@ This library is a fork of https://github.com/learncodebygaming/pydirectinput
 Changes to the fork include:
 
 * Fixes for extended key codes
-* adding flake8 linting
-* adding mypy type hinting and adding annotations (**This makes this fork Python >=3.10 only!**)
+* Adding flake8 linting
+* Adding mypy type hinting and adding annotations (**This makes this fork Python >=3.10 only!**)
 * Adding a scroll function based on https://github.com/learncodebygaming/pydirectinput/pull/22
 * Adding a hotkey function based on https://github.com/learncodebygaming/pydirectinput/pull/30
+* Adding more available keyboard keys
+* Adding optional automatic shifting for certain keayboard keys in old down/up/press functions
+* Adding additional arguments for tighter timing control for press and typewrite functinos
+* Adding Unicode input functions that allow sending text that couldn't be sent by simple keyboard
 
 **This library uses in-line type annotations that require at least Python version 3.10 or higher and there are no plans to make the code backwards compatible to older Python versions!**
 
