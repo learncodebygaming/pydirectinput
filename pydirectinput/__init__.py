@@ -10,7 +10,7 @@ import time
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from ctypes import (
-    POINTER, Array, Structure, Union, c_bool, c_int, c_long,
+    POINTER, Array, Structure, Union, WinDLL, c_bool, c_int, c_long,
     c_short, c_uint, c_ulong, c_ushort, pointer, sizeof, windll,
 )
 from struct import unpack
@@ -656,7 +656,7 @@ def _create_mouse_input(
     time: int = 0,       # c_ulong
 ) -> _INPUT:
     '''Create INPUT structure for mouse input'''
-    dwExtraInfo = c_ulong(0)
+    dwExtraInfo: c_ulong = c_ulong(0)
     input_struct: _INPUT = _INPUT(_INPUT_MOUSE)
     input_struct.mi = _MOUSEINPUT(
         dx,
@@ -678,8 +678,8 @@ def _create_keyboard_input(
     time: int = 0      # c_ulong
 ) -> _INPUT:
     '''Create INPUT structure for keyboard input'''
-    dwExtraInfo = c_ulong(0)
-    input_struct = _INPUT(_INPUT_KEYBOARD)
+    dwExtraInfo: c_ulong = c_ulong(0)
+    input_struct: _INPUT = _INPUT(_INPUT_KEYBOARD)
     input_struct.ki = _KEYBDINPUT(
         wVk,
         wScan,
@@ -698,7 +698,7 @@ def _create_hardware_input(  # pyright: ignore[reportUnusedFunction]
     wParamH: int = 0   # c_ushort
 ) -> _INPUT:
     '''Create INPUT structure for hardware input'''
-    input_struct = _INPUT(_INPUT_HARDWARE)
+    input_struct: _INPUT = _INPUT(_INPUT_HARDWARE)
     input_struct.hi = _HARDWAREINPUT(
         uMsg,
         wParamL,
@@ -713,7 +713,7 @@ def _create_hardware_input(  # pyright: ignore[reportUnusedFunction]
 # ==============================================================================
 
 # ----- user32.dll -------------------------------------------------------------
-_user32 = windll.user32
+_user32: WinDLL = windll.user32
 # ------------------------------------------------------------------------------
 
 
@@ -727,7 +727,7 @@ class _SendInputType(Protocol):
         cInputs: c_uint | int,
         pInputs: _POINTER_TYPE[_INPUT] | _INPUT | Array[_INPUT],
         cbSize: c_int | int
-    ) -> int:
+    ) -> int:  # c_uint
         ...
 
 
@@ -835,7 +835,7 @@ class _MapVirtualKeyWType(Protocol):
         self,
         uCode: c_uint | int,
         uMapType: c_uint | int
-    ) -> int:
+    ) -> int:  # c_uint
         ...
 
 
@@ -917,10 +917,17 @@ _MapVirtualKeyW.restype = c_uint
 
 def _map_virtual_key(
     uCode: int,
-    uMapType: Literal[0, 1, 2, 3, 4]
+    uMapType: Literal[0, 1, 2, 3, 4]  # See _MAPVK_* constants
 ) -> int:
     '''
     Abstraction layer over MapVirtualKeyW (winuser.h)
+
+    Accepted values for uMapType are:
+    - _MAPVK_VK_TO_VSC = 0
+    - _MAPVK_VSC_TO_VK = 1
+    - _MAPVK_VK_TO_CHAR = 2
+    - _MAPVK_VSC_TO_VK_EX = 3
+    - _MAPVK_VK_TO_VSC_EX = 4
 
     See https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mapvirtualkeyw
     '''
@@ -936,7 +943,7 @@ class _GetSystemMetricsType(Protocol):
     def __call__(
         self,
         nIndex: c_int | int,
-    ) -> int:
+    ) -> int:  # c_int
         ...
 
 
@@ -1001,6 +1008,8 @@ def _get_system_metrics(nIndex: int) -> int:
     '''
     Abstraction layer over GetSystemMetrics (winuser.h)
 
+    See the _SM_* constants for accepted values for the nIndex argument.
+
     See https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getsystemmetrics
     '''
     return _GetSystemMetrics(nIndex)
@@ -1015,7 +1024,7 @@ class _GetCursorPosType(Protocol):
     def __call__(
         self,
         lpPoint: _POINTER_TYPE[_POINT] | _POINT
-    ) -> int:
+    ) -> bool:  # c_bool
         ...
 
 
@@ -1081,24 +1090,34 @@ def _get_cursor_pos() -> _POINT:
 # ===== Keyboard Scan Code Mappings ============================================
 # ==============================================================================
 
+# ----- Special class for key extended scancode sequences ----------------------
+class ScancodeSequence(list[int]):
+    '''
+    A special class with the sole purpose of representing extended scancode
+    sequences that should be grouped together in a single INPUT array.
+
+    Inserting non-scancode elements is illegal, but no runtime checks exist
+    to verify correct input! Violations could lead to unpredictable runtime
+    behaviour. You've been warned.
+    '''
+    pass
+# ------------------------------------------------------------------------------
+
+
+# ----- TypeAlias for KEYBOARD_MAPPING values ----------------------------------
+ScancodeTypes: TypeAlias = int | ScancodeSequence
+'''
+Acceptable value types in KEYBOARD_MAPPING.
+
+Accepts single standalone scancode integer or multiple scancode integers
+contained in a special class ScancodeSequence instance.
+'''
+# ------------------------------------------------------------------------------
+
+
 # ----- Offsets for values in KEYBOARD_MAPPING ---------------------------------
 _OFFSET_EXTENDEDKEY: Literal[0xE000] = 0xE000
 _OFFSET_SHIFTKEY: Literal[0x10000] = 0x10000
-_OFFSET_KEYSEQUENCE: Literal[0x20000] = 0x20000
-# ------------------------------------------------------------------------------
-
-
-# ----- Magic constants to indicate extended key sequences ---------------------
-_PAUSE_SEQUENCE: Final[int] = 0x00 + _OFFSET_KEYSEQUENCE
-_PRINTSCREEN_SEQUENCE: Final[int] = 0x01 + _OFFSET_KEYSEQUENCE
-# ------------------------------------------------------------------------------
-
-
-# ----- Extended key sequences for KEYBOARD_MAPPING ----------------------------
-_SCANCODE_SEQUENCES: dict[int, list[int]] = {
-    _PAUSE_SEQUENCE: [0xE11D, 0x45, 0xE19D, 0xC5],
-    _PRINTSCREEN_SEQUENCE: [0xE02A, 0xE037],
-}
 # ------------------------------------------------------------------------------
 
 
@@ -1106,7 +1125,7 @@ _SCANCODE_SEQUENCES: dict[int, list[int]] = {
 _SHIFT_SCANCODE: Literal[0x2A] = 0x2A  # Used in auto-shifting
 # should be keyboard MAKE scancodes ( <0x80 )
 # some keys require the use of EXTENDEDKEY flags, they
-KEYBOARD_MAPPING: dict[str, int] = {
+US_QWERTY_MAPPING: Final[dict[str, ScancodeTypes]] = {
     'escape': 0x01,
     'esc': 0x01,
     'f1': 0x3B,
@@ -1121,13 +1140,13 @@ KEYBOARD_MAPPING: dict[str, int] = {
     'f10': 0x44,
     'f11': 0x57,
     'f12': 0x58,
-    'printscreen': 0x54,  # same result as _PRINTSCREEN_SEQUENCE
-    'prntscrn': 0x54,  # same result as _PRINTSCREEN_SEQUENCE
-    'prtsc': 0x54,  # same result as _PRINTSCREEN_SEQUENCE
-    'prtscr': 0x54,  # same result as _PRINTSCREEN_SEQUENCE
+    'printscreen': 0x54,  # same result as ScancodeSequence([0xE02A, 0xE037])
+    'prntscrn': 0x54,  # same result as ScancodeSequence([0xE02A, 0xE037])
+    'prtsc': 0x54,  # same result as ScancodeSequence([0xE02A, 0xE037])
+    'prtscr': 0x54,  # same result as ScancodeSequence([0xE02A, 0xE037])
     'scrolllock': 0x46,
     'ctrlbreak': 0x46 + _OFFSET_EXTENDEDKEY,
-    'pause': _PAUSE_SEQUENCE,
+    'pause': ScancodeSequence([0xE11D, 0x45, 0xE19D, 0xC5]),
     '`': 0x29,
     '1': 0x02,
     '2': 0x03,
@@ -1352,7 +1371,24 @@ KEYBOARD_MAPPING: dict[str, int] = {
 '''
 Maps a string representation of keyboard keys to their corresponding hardware
 scan code. Based on standard US QWERTY-Layout.
+
+Not intended to be changed at runtime!
+
+If you want to change the keyboard mapping to better reflect your own keyboard
+layout, use `KEYBOARD_MAPPING.update(your_dict)` where `your_dict` is a dict
+that maps keynames to scancodes.
 '''
+
+KEYBOARD_MAPPING: dict[str, ScancodeTypes] = {}
+'''
+Maps a string representation of keyboard keys to their corresponding hardware
+scan code. Based on standard US QWERTY-Layout by default.
+
+If you want to change the keyboard mapping to better reflect your own keyboard
+layout, use `KEYBOARD_MAPPING.update(your_dict)`, where `your_dict` is a dict
+that maps keynames to scancodes.
+'''
+KEYBOARD_MAPPING.update(US_QWERTY_MAPPING)  # use US QWERTY by default
 # ------------------------------------------------------------------------------
 
 
@@ -1397,7 +1433,6 @@ def _handlePause(_pause: Any) -> None:
     Pause the default amount of time if `_pause=True` in function arguments.
     '''
     if _pause:
-        assert isinstance(PAUSE, int) or isinstance(PAUSE, float)
         time.sleep(PAUSE)
 # ------------------------------------------------------------------------------
 
@@ -1421,9 +1456,11 @@ def _genericPyDirectInputChecks(
     '''
     @functools.wraps(wrappedFunction)
     def wrapper(*args: _PS.args, **kwargs: _PS.kwargs) -> _RT:
-        funcArgs = inspect.getcallargs(wrappedFunction, *args, **kwargs)
+        funcArgs: dict[str, Any] = (
+            inspect.getcallargs(wrappedFunction, *args, **kwargs)
+        )
         _failSafeCheck()
-        returnVal = wrappedFunction(*args, **kwargs)
+        returnVal: _RT = wrappedFunction(*args, **kwargs)
         _handlePause(funcArgs.get("_pause"))
         return returnVal
     return wrapper
@@ -1446,12 +1483,13 @@ def _to_windows_coordinates(
     tuple (x, y).
     '''
     size: Sequence[int] = _virtual_size() if virtual else _size()
-    display_width, display_height = size[0:2]
+    display_width: int = size[0]
+    display_height: int = size[1]
 
     # the +1 here prevents exactly mouse movements from sometimes ending up
     # off by 1 pixel
-    windows_x = (x * 65536) // display_width + 1
-    windows_y = (y * 65536) // display_height + 1
+    windows_x: int = (x * 65536) // display_width + 1
+    windows_y: int = (y * 65536) // display_height + 1
 
     return windows_x, windows_y
 # ------------------------------------------------------------------------------
@@ -1468,7 +1506,7 @@ def _position(
     If x and/or y argument(s) ar not given, use current mouse cursor coordinate
     instead.
     '''
-    cursor = _get_cursor_pos()
+    cursor: _POINT = _get_cursor_pos()
     return (
         cursor.x if x is None else int(x),
         cursor.y if y is None else int(y)
@@ -1521,6 +1559,7 @@ def _get_mouse_struct_data(
     '''
     if not (0 <= method <= 2):
         raise ValueError(f"method index {method} is not a valid argument!")
+
     buttons_swapped: bool
     if button == MOUSE_PRIMARY:
         buttons_swapped = (_get_system_metrics(_SM_SWAPBUTTON) != 0)
@@ -1528,9 +1567,11 @@ def _get_mouse_struct_data(
     elif button == MOUSE_SECONDARY:
         buttons_swapped = (_get_system_metrics(_SM_SWAPBUTTON) != 0)
         button = MOUSE_LEFT if buttons_swapped else MOUSE_RIGHT
+
     event_value: int | None
     event_value = _MOUSE_MAPPING_EVENTF.get(button, (None, None, None))[method]
     mouseData: int = _MOUSE_MAPPING_DATA.get(button, 0)
+
     return event_value, mouseData
 # ------------------------------------------------------------------------------
 
@@ -1614,12 +1655,10 @@ def mouseDown(
             f'"{MOUSE_SECONDARY}"; got "{button}" instead!'
         )
 
-    input_struct = _create_mouse_input(
+    _send_input(_create_mouse_input(
         mouseData=mouseData,
         dwFlags=event_value
-    )
-
-    _send_input(input_struct)
+    ))
 # ------------------------------------------------------------------------------
 
 
@@ -1684,12 +1723,10 @@ def mouseUp(
             f'"{MOUSE_SECONDARY}"; got "{button}" instead!'
         )
 
-    input_struct = _create_mouse_input(
+    _send_input(_create_mouse_input(
         mouseData=mouseData,
         dwFlags=event_value
-    )
-
-    _send_input(input_struct)
+    ))
 # ------------------------------------------------------------------------------
 
 
@@ -1761,16 +1798,16 @@ def click(
             f'"{MOUSE_SECONDARY}"; got "{button}" instead!'
         )
 
+    apply_interval: bool = False
     for _ in range(clicks):
-        _failSafeCheck()
+        if apply_interval:  # Don't delay first press
+            time.sleep(interval)
+        apply_interval = True
 
-        input_struct = _create_mouse_input(
+        _send_input(_create_mouse_input(
             mouseData=mouseData,
             dwFlags=event_value
-        )
-
-        _send_input(input_struct)
-        time.sleep(interval)
+        ))
 # ------------------------------------------------------------------------------
 
 
@@ -1984,13 +2021,16 @@ def scroll(
         direction = -1
         clicks = abs(clicks)
 
+    apply_interval: bool = False
     for _ in range(clicks):
-        input_struct = _create_mouse_input(
+        if apply_interval:
+            time.sleep(interval)
+        apply_interval = True
+
+        _send_input(_create_mouse_input(
             mouseData=(direction * _WHEEL_DELTA),
             dwFlags=_MOUSEEVENTF_WHEEL
-        )
-        _send_input(input_struct)
-        time.sleep(interval)
+        ))
 # ------------------------------------------------------------------------------
 
 
@@ -2023,19 +2063,23 @@ def hscroll(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
+    direction: Literal[-1, 1]
     if clicks >= 0:
         direction = 1
     else:
         direction = -1
         clicks = abs(clicks)
 
+    apply_interval: bool = False
     for _ in range(clicks):
-        input_struct = _create_mouse_input(
+        if apply_interval:
+            time.sleep(interval)
+        apply_interval = True
+
+        _send_input(_create_mouse_input(
             mouseData=(direction * _WHEEL_DELTA),
             dwFlags=_MOUSEEVENTF_HWHEEL
-        )
-        _send_input(input_struct)
-        time.sleep(interval)
+        ))
 # ------------------------------------------------------------------------------
 
 
@@ -2084,15 +2128,17 @@ def moveTo(
         dwFlags: int = (_MOUSEEVENTF_MOVE | _MOUSEEVENTF_ABSOLUTE)
         if virtual:
             dwFlags |= _MOUSEEVENTF_VIRTUALDESK
-        input_struct = _create_mouse_input(
+        _send_input(_create_mouse_input(
             dx=x, dy=y,
             dwFlags=dwFlags
-        )
-        _send_input(input_struct)
+        ))
+
     else:
         currentX, currentY = _position()
         if x is None or y is None:
-            raise ValueError("x and y have to be integers if relative is set!")
+            raise ValueError(
+                "x and/or y have to be integers if relative is set!"
+            )
         moveRel(
             x - currentX,
             y - currentY,
@@ -2143,6 +2189,8 @@ def moveRel(
     if yOffset is None:
         yOffset = 0
     if not relative:
+        x: int
+        y: int
         x, y = _position()
         moveTo(
             x + xOffset,
@@ -2163,11 +2211,10 @@ def moveRel(
         # SystemParametersInfo function."
         # https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-mouseinput
         # https://stackoverflow.com/questions/50601200/pyhon-directinput-mouse-relative-moving-act-not-as-expected
-        input_struct = _create_mouse_input(
+        _send_input(_create_mouse_input(
             dx=xOffset, dy=yOffset,
             dwFlags=_MOUSEEVENTF_MOVE
-        )
-        _send_input(input_struct)
+        ))
 # ------------------------------------------------------------------------------
 
 
@@ -2216,6 +2263,8 @@ def dragTo(
         if mouseDownUp:
             mouseUp(button=button, _pause=False, virtual=virtual)
     else:
+        currentX: int
+        currentY: int
         currentX, currentY = _position()
         if x is None or y is None:
             raise ValueError("x and y have to be integers if relative is set!")
@@ -2262,6 +2311,8 @@ def dragRel(
     if yOffset is None:
         yOffset = 0
     if not relative:
+        x: int
+        y: int
         x, y = _position()
         dragTo(
             x + xOffset,
@@ -2314,14 +2365,14 @@ def isValidKey(key: str) -> bool:
 # ----- scancode_keyDown -------------------------------------------------------
 @_genericPyDirectInputChecks
 def scancode_keyDown(
-    scancode: int,
+    scancodes: ScancodeTypes,
     logScreenshot: None = None,
     _pause: bool = True,
     *,
     auto_shift: bool = False
 ) -> bool:
     '''
-    Press down key corresponding to `scancode`.
+    Press down key corresponding to `scancodes`.
 
     The actually pressed key will depend on your system keyboard layout.
     Limits the available character set but should provide the best
@@ -2338,32 +2389,29 @@ def scancode_keyDown(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
+    scancodes_sequence: ScancodeSequence
+    if isinstance(scancodes, int):
+        scancodes_sequence = ScancodeSequence([scancodes])
+    else:
+        scancodes_sequence = scancodes
+
     keybdFlags: int = _KEYEVENTF_SCANCODE
     input_structs: list[_INPUT] = []
+    extendedFlag: int
 
     # Init event tracking
-    insertedEvents = 0
-    expectedEvents = 0
+    insertedEvents: int = 0
+    expectedEvents: int = 0
 
-    if auto_shift and scancode & _OFFSET_SHIFTKEY:
-        input_structs += [_create_keyboard_input(
-            wScan=_SHIFT_SCANCODE,
-            dwFlags=keybdFlags
-        )]
-        expectedEvents += 1
+    for scancode in scancodes_sequence:
 
-    if scancode & _OFFSET_KEYSEQUENCE:
-        code_sequence = _SCANCODE_SEQUENCES.get(scancode, [])
-        if not code_sequence:
-            return False
-        for code in code_sequence:
-            extendedFlag = _KEYEVENTF_EXTENDEDKEY if code >= 0xE000 else 0
+        if auto_shift and scancode & _OFFSET_SHIFTKEY:
             input_structs += [_create_keyboard_input(
-                wScan=code & 0xFFFF,
-                dwFlags=keybdFlags | extendedFlag
+                wScan=_SHIFT_SCANCODE,
+                dwFlags=keybdFlags
             )]
             expectedEvents += 1
-    else:
+
         extendedFlag = _KEYEVENTF_EXTENDEDKEY if scancode >= 0xE000 else 0
         input_structs += [_create_keyboard_input(
             wScan=scancode & 0xFFFF,
@@ -2383,14 +2431,14 @@ def scancode_keyDown(
 # ----- scancode_keyUp ---------------------------------------------------------
 @_genericPyDirectInputChecks
 def scancode_keyUp(
-    scancode: int,
+    scancodes: ScancodeTypes,
     logScreenshot: None = None,
     _pause: bool = True,
     *,
     auto_shift: bool = False
 ) -> bool:
     '''
-    Release key `key`.
+    Release key corresponding to `scancodes`.
 
     The actually pressed key will depend on your system keyboard layout.
     Limits the available character set but should provide the best
@@ -2407,47 +2455,44 @@ def scancode_keyUp(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
+    scancodes_sequence: ScancodeSequence
+    if isinstance(scancodes, int):
+        scancodes_sequence = ScancodeSequence([scancodes])
+    else:
+        scancodes_sequence = scancodes
+
     keybdFlags: int = _KEYEVENTF_SCANCODE | _KEYEVENTF_KEYUP
     input_structs: list[_INPUT] = []
+    extendedFlag: int
 
     # Init event tracking
-    insertedEvents = 0
-    expectedEvents = 0
+    insertedEvents: int = 0
+    expectedEvents: int = 0
 
-    if auto_shift and scancode & _OFFSET_SHIFTKEY:
-        input_structs += [_create_keyboard_input(
-            wScan=_SHIFT_SCANCODE,
-            dwFlags=keybdFlags
-        )]
-        expectedEvents += 1
+    for scancode in scancodes_sequence:
 
-    if scancode & _OFFSET_KEYSEQUENCE:
-        code_sequence = _SCANCODE_SEQUENCES.get(scancode, [])
-        if not code_sequence:
-            return False
-        for code in code_sequence:
-            extendedFlag = _KEYEVENTF_EXTENDEDKEY if code >= 0xE000 else 0
+        if auto_shift and scancode & _OFFSET_SHIFTKEY:
             input_structs += [_create_keyboard_input(
-                wScan=code & 0xFFFF,
-                dwFlags=keybdFlags | extendedFlag
+                wScan=_SHIFT_SCANCODE,
+                dwFlags=keybdFlags
             )]
             expectedEvents += 1
-    else:
+
         extendedFlag = _KEYEVENTF_EXTENDEDKEY if scancode >= 0xE000 else 0
         input_structs += [_create_keyboard_input(
             wScan=scancode & 0xFFFF,
             dwFlags=keybdFlags | extendedFlag
         )]
         expectedEvents += 1
-    insertedEvents += _send_input(input_structs)
 
+    insertedEvents += _send_input(input_structs)
     return insertedEvents == expectedEvents
 # ------------------------------------------------------------------------------
 
 
 # ----- _helper_scancode_press -------------------------------------------------
 def _helper_scancode_press(
-    scancode: int,
+    scancodes: ScancodeTypes,
     duration: float = 0.0,
     _pause: bool = True,
     auto_shift: bool = False
@@ -2457,10 +2502,17 @@ def _helper_scancode_press(
 
     Return `True` if complete press was successful.
     '''
-    _failSafeCheck()
-    downed = scancode_keyDown(scancode, _pause=_pause, auto_shift=auto_shift)
+    downed: bool = scancode_keyDown(
+        scancodes,
+        _pause=_pause,
+        auto_shift=auto_shift
+    )
     time.sleep(duration)
-    upped = scancode_keyUp(scancode, _pause=_pause, auto_shift=auto_shift)
+    upped: bool = scancode_keyUp(
+        scancodes,
+        _pause=_pause,
+        auto_shift=auto_shift
+    )
     # Count key press as complete if key was "downed" and "upped"
     # successfully
     return bool(downed and upped)
@@ -2471,7 +2523,7 @@ def _helper_scancode_press(
 # Ignored parameters: logScreenshot
 @_genericPyDirectInputChecks
 def scancode_press(
-    scancodes: int | Sequence[int],
+    scancodes: ScancodeTypes | Sequence[ScancodeTypes],
     presses: int = 1,
     interval: float = 0.0,
     logScreenshot: None = None,
@@ -2512,23 +2564,29 @@ def scancode_press(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
+    scancodes_sequence: Sequence[ScancodeTypes]
     if isinstance(scancodes, int):
-        scancodes = [scancodes]  # If keys is 'enter', convert it to ['enter'].
-    interval = float(interval)
+        scancodes_sequence = [ScancodeSequence([scancodes])]
+    elif isinstance(scancodes, ScancodeSequence):
+        scancodes_sequence = [scancodes]
+    else:
+        scancodes_sequence = scancodes
 
     # We need to press x keys y times, which comes out to x*y presses in total
-    expectedPresses = presses * len(scancodes)
-    completedPresses = 0
+    expectedPresses: int = presses * len(scancodes_sequence)
+    completedPresses: int = 0
 
     apply_interval: bool = False
     for _ in range(presses):
         if apply_interval:  # Don't delay first press
             time.sleep(interval)
+        apply_interval = True
 
-        for c in scancodes:
-            apply_delay: bool = False
+        apply_delay: bool = False
+        for c in scancodes_sequence:
             if apply_delay:  # Don't delay first press
                 time.sleep(delay)
+            apply_delay = True
 
             completedPresses += _helper_scancode_press(
                 c,
@@ -2536,9 +2594,6 @@ def scancode_press(
                 _pause=False,
                 auto_shift=auto_shift
             )
-
-            apply_delay = True
-        apply_interval = True
 
     return completedPresses == expectedPresses
 # ------------------------------------------------------------------------------
@@ -2548,7 +2603,7 @@ def scancode_press(
 @contextmanager
 @_genericPyDirectInputChecks
 def scancode_hold(
-    scancodes: int | Sequence[int],
+    scancodes: ScancodeTypes | Sequence[ScancodeTypes],
     logScreenshot: None = None,
     _pause: bool = True,
     *,
@@ -2583,20 +2638,24 @@ def scancode_hold(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
+    scancodes_sequence: Sequence[ScancodeTypes]
     if isinstance(scancodes, int):
-        scancodes = [scancodes]  # make single element into iterable
+        scancodes_sequence = [ScancodeSequence([scancodes])]
+    elif isinstance(scancodes, ScancodeSequence):
+        scancodes_sequence = [scancodes]
+    else:
+        scancodes_sequence = scancodes
 
-    expectedPresses = len(scancodes)
-    downed = upped = 0
+    expectedPresses: int = len(scancodes_sequence)
+    downed: int = 0
+    upped: int = 0
 
-    for c in scancodes:
-        _failSafeCheck()
-        downed += scancode_keyDown(c, _pause=False, auto_shift=auto_shift)
     try:
+        for c in scancodes_sequence:
+            downed += scancode_keyDown(c, _pause=False, auto_shift=auto_shift)
         yield
     finally:
-        for c in reversed(scancodes):
-            _failSafeCheck()
+        for c in reversed(scancodes_sequence):
             upped += scancode_keyUp(c, _pause=False, auto_shift=auto_shift)
         if raise_on_failure and not (expectedPresses == downed == upped):
             raise PriorInputFailedException
@@ -2606,13 +2665,13 @@ def scancode_hold(
 # ----- scancode_hotkey --------------------------------------------------------
 @_genericPyDirectInputChecks
 def scancode_hotkey(
-    *args: int,
+    *args: ScancodeTypes,
     interval: float = 0.0,
     wait: float = 0.0,
     logScreenshot: None = None,
     _pause: bool = True,
     auto_shift: bool = True,
-) -> None:
+) -> bool:
     '''
     Press down buttons in order they are specified as arguments,
     releasing them in reverse order, e.g. 0x1D, 0x2E will first press
@@ -2636,19 +2695,29 @@ def scancode_hotkey(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
-    delay_key: bool = False
+    expectedPresses: int = len(args)
+    downed: int = 0
+    upped: int = 0
+
+    apply_interval: bool = False
     for code in args:
-        if delay_key:
+        if apply_interval:
             time.sleep(interval)  # sleep between iterations
-        delay_key = True
-        scancode_keyDown(code, _pause=False, auto_shift=auto_shift)
+        apply_interval = True
+
+        downed += scancode_keyDown(code, _pause=False, auto_shift=auto_shift)
+
     time.sleep(wait)
-    delay_key = False
+
+    apply_interval = False
     for code in reversed(args):
-        if delay_key:
+        if apply_interval:
             time.sleep(interval)  # sleep between iterations
-        delay_key = True
-        scancode_keyUp(code, _pause=False, auto_shift=auto_shift)
+        apply_interval = True
+
+        upped += scancode_keyUp(code, _pause=False, auto_shift=auto_shift)
+
+    return (expectedPresses == downed == upped)
 # ------------------------------------------------------------------------------
 
 
@@ -2682,11 +2751,11 @@ def keyDown(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
-    hexKeyCode = KEYBOARD_MAPPING.get(key)
-    if hexKeyCode is None:
+    scancode: ScancodeTypes | None = KEYBOARD_MAPPING.get(key)
+    if scancode is None:
         return False
     return scancode_keyDown(
-        hexKeyCode,
+        scancode,
         logScreenshot,
         _pause,
         auto_shift=auto_shift
@@ -2721,11 +2790,11 @@ def keyUp(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
-    hexKeyCode = KEYBOARD_MAPPING.get(key)
-    if hexKeyCode is None:
+    scancode: ScancodeTypes | None = KEYBOARD_MAPPING.get(key)
+    if scancode is None:
         return False
     return scancode_keyUp(
-        hexKeyCode,
+        scancode,
         logScreenshot,
         _pause,
         auto_shift=auto_shift
@@ -2745,10 +2814,9 @@ def _helper_press(
 
     Return `True` if complete press was successful.
     '''
-    _failSafeCheck()
-    downed = keyDown(key, _pause=_pause, auto_shift=auto_shift)
+    downed: bool = keyDown(key, _pause=_pause, auto_shift=auto_shift)
     time.sleep(duration)
-    upped = keyUp(key, _pause=_pause, auto_shift=auto_shift)
+    upped: bool = keyUp(key, _pause=_pause, auto_shift=auto_shift)
     # Count key press as complete if key was "downed" and "upped"
     # successfully
     return bool(downed and upped)
@@ -2803,21 +2871,22 @@ def press(
     if isinstance(keys, str):
         keys = [keys]  # If keys is 'enter', convert it to ['enter'].
     keys = [_normalize_key(key, auto_shift=auto_shift) for key in keys]
-    interval = float(interval)
 
     # We need to press x keys y times, which comes out to x*y presses in total
-    expectedPresses = presses * len(keys)
-    completedPresses = 0
+    expectedPresses: int = presses * len(keys)
+    completedPresses: int = 0
 
     apply_interval: bool = False
     for _ in range(presses):
         if apply_interval:  # Don't delay first press
             time.sleep(interval)
+        apply_interval = True
 
+        apply_delay: bool = False
         for k in keys:
-            apply_delay: bool = False
             if apply_delay:  # Don't delay first press
                 time.sleep(delay)
+            apply_delay = True
 
             completedPresses += _helper_press(
                 k,
@@ -2825,9 +2894,6 @@ def press(
                 _pause=False,
                 auto_shift=auto_shift
             )
-
-            apply_delay = True
-        apply_interval = True
 
     return completedPresses == expectedPresses
 # ------------------------------------------------------------------------------
@@ -2877,17 +2943,16 @@ def hold(
         keys = [keys]  # make single element into iterable
     keys = [_normalize_key(key, auto_shift=auto_shift) for key in keys]
 
-    expectedPresses = len(keys)
-    downed = upped = 0
+    expectedPresses: int = len(keys)
+    downed: int = 0
+    upped: int = 0
 
-    for k in keys:
-        _failSafeCheck()
-        downed += keyDown(k, auto_shift=auto_shift)
     try:
+        for k in keys:
+            downed += keyDown(k, auto_shift=auto_shift)
         yield
     finally:
         for k in reversed(keys):
-            _failSafeCheck()
             upped += keyUp(k, auto_shift=auto_shift)
         if raise_on_failure and not (expectedPresses == downed == upped):
             raise PriorInputFailedException
@@ -2895,7 +2960,6 @@ def hold(
 
 
 # ----- typewrite --------------------------------------------------------------
-# Ignored parameters: logScreenshot
 @_genericPyDirectInputChecks
 def typewrite(
     message: str,
@@ -2940,12 +3004,13 @@ def typewrite(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
-    interval = float(interval)
+
     apply_interval: bool = False
     for key in message:
         if apply_interval:  # Don't delay first press
             time.sleep(interval)
-        _failSafeCheck()
+        apply_interval = True
+
         press(
             key,
             _pause=False,
@@ -2953,7 +3018,6 @@ def typewrite(
             delay=delay,
             duration=duration
         )
-        apply_interval = True
 # ------------------------------------------------------------------------------
 
 
@@ -2997,18 +3061,22 @@ def hotkey(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
-    delay_key: bool = False
+    apply_interval: bool = False
     for key in args:
-        if delay_key:
+        if apply_interval:
             time.sleep(interval)  # sleep between iterations
-        delay_key = True
+        apply_interval = True
+
         keyDown(key, _pause=False, auto_shift=auto_shift)
+
     time.sleep(wait)
-    delay_key = False
+
+    apply_interval = False
     for key in reversed(args):
-        if delay_key:
+        if apply_interval:
             time.sleep(interval)  # sleep between iterations
-        delay_key = True
+        apply_interval = True
+
         keyUp(key, _pause=False, auto_shift=auto_shift)
 # ------------------------------------------------------------------------------
 
@@ -3036,12 +3104,15 @@ def unicode_charDown(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
-    utf16surrogates = char.encode('utf-16be')
-    codes = unpack(f'>{len(utf16surrogates)//2}H', utf16surrogates)
+    utf16surrogates: bytes = char.encode('utf-16be')
+    codes: Sequence[int] = unpack(
+        f'>{len(utf16surrogates)//2}H',
+        utf16surrogates
+    )
 
     keybdFlags: int = _KEYEVENTF_UNICODE
 
-    input_structs = [
+    input_structs: list[_INPUT] = [
         _create_keyboard_input(
             wVk=0,
             wScan=charcode,
@@ -3050,8 +3121,8 @@ def unicode_charDown(
         for charcode in codes
     ]
     # Init event tracking
-    expectedEvents = len(input_structs)
-    insertedEvents = _send_input(input_structs)
+    expectedEvents: int = len(input_structs)
+    insertedEvents: int = _send_input(input_structs)
 
     return insertedEvents == expectedEvents
 # ------------------------------------------------------------------------------
@@ -3078,12 +3149,15 @@ def unicode_charUp(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
-    utf16surrogates = char.encode('utf-16be')
-    codes = unpack(f'>{len(utf16surrogates)//2}H', utf16surrogates)
+    utf16surrogates: bytes = char.encode('utf-16be')
+    codes: Sequence[int] = unpack(
+        f'>{len(utf16surrogates)//2}H',
+        utf16surrogates
+    )
 
     keybdFlags: int = _KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP
 
-    input_structs = [
+    input_structs: list[_INPUT] = [
         _create_keyboard_input(
             wVk=0,
             wScan=charcode,
@@ -3092,8 +3166,8 @@ def unicode_charUp(
         for charcode in codes
     ]
     # Init event tracking
-    expectedEvents = len(input_structs)
-    insertedEvents = _send_input(input_structs)
+    expectedEvents: int = len(input_structs)
+    insertedEvents: int = _send_input(input_structs)
 
     return insertedEvents == expectedEvents
 # ------------------------------------------------------------------------------
@@ -3110,10 +3184,9 @@ def _helper_unicode_press_char(
 
     Return `True` if complete press was successful.
     '''
-    _failSafeCheck()
-    downed = unicode_charDown(char, _pause=_pause)
+    downed: bool = unicode_charDown(char, _pause=_pause)
     time.sleep(duration)
-    upped = unicode_charUp(char, _pause=_pause)
+    upped: bool = unicode_charUp(char, _pause=_pause)
     # Count key press as complete if key was "downed" and "upped"
     # successfully
     return bool(downed and upped)
@@ -3159,30 +3232,28 @@ def unicode_press(
     '''
     if isinstance(chars, str):
         chars = [chars]
-    interval = float(interval)
 
     # We need to press x keys y times, which comes out to x*y presses in total
-    expectedPresses = presses * len(chars)
-    completedPresses = 0
+    expectedPresses: int = presses * len(chars)
+    completedPresses: int = 0
 
     apply_interval: bool = False
     for _ in range(presses):
         if apply_interval:  # Don't delay first press
             time.sleep(interval)
+        apply_interval = True
 
+        apply_delay: bool = False
         for c in chars:
-            apply_delay: bool = False
             if apply_delay:  # Don't delay first press
                 time.sleep(delay)
+            apply_delay = True
 
             completedPresses += _helper_unicode_press_char(
                 c,
                 duration,
                 _pause=False,
             )
-
-            apply_delay = True
-        apply_interval = True
 
     return completedPresses == expectedPresses
 # ------------------------------------------------------------------------------
@@ -3225,17 +3296,16 @@ def unicode_hold(
     if isinstance(chars, str):
         chars = [chars]  # make single element into iterable
 
-    expectedPresses = len(chars)
-    downed = upped = 0
+    expectedPresses: int = len(chars)
+    downed: int = 0
+    upped: int = 0
 
-    for c in chars:
-        _failSafeCheck()
-        downed += unicode_charDown(c)
     try:
+        for c in chars:
+            downed += unicode_charDown(c)
         yield
     finally:
         for c in reversed(chars):
-            _failSafeCheck()
             upped += unicode_charUp(c)
         if raise_on_failure and not (expectedPresses == downed == upped):
             raise PriorInputFailedException
@@ -3279,14 +3349,13 @@ def unicode_typewrite(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
-    delay_key: bool = False
+    apply_interval: bool = False
     for char in message:
-        if delay_key:
+        if apply_interval:
             time.sleep(interval)  # sleep between iterations
-        delay_key = True
+        apply_interval = True
+
         unicode_press(char, _pause=False, delay=delay, duration=duration)
-        time.sleep(interval)
-        _failSafeCheck()
 # ------------------------------------------------------------------------------
 
 
@@ -3327,17 +3396,21 @@ def unicode_hotkey(
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
-    delay_key: bool = False
+    apply_interval: bool = False
     for char in args:
-        if delay_key:
+        if apply_interval:
             time.sleep(interval)  # sleep between iterations
-        delay_key = True
+        apply_interval = True
+
         unicode_charDown(char, _pause=False)
+
     time.sleep(wait)
-    delay_key = False
+
+    apply_interval = False
     for char in reversed(args):
-        if delay_key:
+        if apply_interval:
             time.sleep(interval)  # sleep between iterations
-        delay_key = True
+        apply_interval = True
+
         unicode_charUp(char, _pause=False)
 # ------------------------------------------------------------------------------
