@@ -4,88 +4,35 @@ This library is a fork of https://github.com/learncodebygaming/pydirectinput
 
 Changes to the fork include:
 
-* Fixes for extended key codes
+* Adding/fixing extended key codes
 * Adding flake8 linting
 * Adding mypy type hinting and adding annotations (**This makes this fork Python >=3.10 only!**)
-* Adding a scroll function based on https://github.com/learncodebygaming/pydirectinput/pull/22
-* Adding a hotkey function based on https://github.com/learncodebygaming/pydirectinput/pull/30
+* Adding scroll functions based on https://github.com/learncodebygaming/pydirectinput/pull/22 and improve them
+* Adding hotkey functions based on https://github.com/learncodebygaming/pydirectinput/pull/30 and improve them
 * Adding more available keyboard keys
 * Adding optional automatic shifting for certain keayboard keys in old down/up/press functions
 * Adding additional arguments for tighter timing control for press and typewrite functinos
 * Adding Unicode input functions that allow sending text that couldn't be sent by simple keyboard
+* Adding Scancode input functions that allow lower level access to SendInput's abstractions
+* Adding support for multi-monitor setups via virtual resolution
+* Adding support for swapped primary mouse buttons
+* Increase documentation
 
 **This library uses in-line type annotations that require at least Python version 3.10 or higher and there are no plans to make the code backwards compatible to older Python versions!**
 
-See the old original README below.
 
-___
-___
-___
+## Features NOT YET Implemented
 
-# PyDirectInput
-
-This library aims to replicate the functionality of the PyAutoGUI mouse and keyboard inputs, but by utilizing DirectInput scan codes and the more modern SendInput() win32 function. PyAutoGUI uses Virtual Key Codes (VKs) and the deprecated mouse_event() and keybd_event() win32 functions. You may find that PyAutoGUI does not work in some applications, particularly in video games and other software that rely on DirectX. If you find yourself in that situation, give this library a try!
-
-`pip install pydirectinput`
-
-This package is intended to be used in conjunction with PyAutoGUI. You can continue to use PyAutoGUI for all of its cool features and simply substitute in PyDirectInput for the inputs that aren't working. The function interfaces are the same, but this package may not implement all optional parameters and features.
-
-Want to see a missing feature implemented? Why not give it a try yourself! I welcome all pull requests and will be happy to work with you to get a solution fleshed out. Get involved in open source! Learn more about programming! Pad your resume! Have fun!
-
-Source code available at https://github.com/learncodebygaming/pydirectinput
-
-Watch the tutorial here: https://www.youtube.com/watch?v=LFDGgFRqVIs
-
-## Example Usage
-
-```python
-    >>> import pyautogui
-    >>> import pydirectinput
-    >>> pydirectinput.moveTo(100, 150) # Move the mouse to the x, y coordinates 100, 150.
-    >>> pydirectinput.click() # Click the mouse at its current location.
-    >>> pydirectinput.click(200, 220) # Click the mouse at the x, y coordinates 200, 220.
-    >>> pydirectinput.move(None, 10)  # Move mouse 10 pixels down, that is, move the mouse relative to its current position.
-    >>> pydirectinput.doubleClick() # Double click the mouse at the
-    >>> pydirectinput.press('esc') # Simulate pressing the Escape key.
-    >>> pydirectinput.keyDown('shift')
-    >>> pydirectinput.keyUp('shift')
-```
-
-## Documentation
-
-The DirectInput key codes can be found by following the breadcrumbs in the documentation here: https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-input
-
-You might also be interested in the main SendInput documentation here: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput
-
-You can find a discussion of the problems with using vkCodes in video games here: https://stackoverflow.com/questions/14489013/simulate-python-keypresses-for-controlling-a-game
-
-## Testing
-
-To run the supplied tests: first setup a virtualenv. Then you can pip install this project in an editable state by doing `pip install -e .`. This allows any edits you make to these project files to be reflected when you run the tests. Run the test file with `python3 tests`.
-
-I have been testing with Half-Life 2 to confirm that these inputs work with DirectX games.
-
-## Features Implemented
-
-- Fail Safe Check
-- Pause
-- position()
-- size()
-- moveTo(x, y)
-- move(x, y) / moveRel(x, y)
-- mouseDown()
-- mouseUp()
-- click()
-- keyDown()
-- keyUp()
-- press()
-- write() / typewrite()
-
-## Features NOT Implemented
-
-- scroll functions
-- drag functions
-- hotkey functions
-- support for special characters requiring the shift key (ie. '!', '@', '#'...)
+- ~~scroll functions~~
+- ~~drag functions~~
+- ~~hotkey functions~~
+- ~~support for special characters requiring the shift key (ie. '!', '@', '#'...)~~
 - ignored parameters on mouse functions: duration, tween, logScreenshot
 - ignored parameters on keyboard functions: logScreenshot
+- automatic testing
+
+___
+
+See the [old original README](OLD_README.md).
+
+___

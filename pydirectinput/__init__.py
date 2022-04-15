@@ -7,6 +7,8 @@ mouse and keyboard inputs.
 import functools
 import inspect
 import time
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager
 from ctypes import (
     POINTER, Array, Structure, Union, c_bool, c_int, c_long,
     c_short, c_uint, c_ulong, c_ushort, pointer, sizeof, windll,
@@ -14,43 +16,67 @@ from ctypes import (
 from struct import unpack
 from typing import (
     TYPE_CHECKING, Any, Callable, Final, Literal,
-    Protocol, Sequence, TypeAlias, TypeVar,
+    ParamSpec, Protocol, TypeAlias, TypeVar,
 )
-from typing import cast as hint_cast
+from typing import cast as hint_cast  # prevent confusion with ctypes.cast
 
 
+# ------------------------------------------------------------------------------
 if TYPE_CHECKING:
     # https://github.com/python/mypy/issues/7540#issuecomment-845741357
     _POINTER_TYPE = pointer
 else:
-    # Monkeypatch typed pointer from typeshed into ctypes
     class __pointer:
+        '''Monkeypatch typed pointer from typeshed into ctypes'''
         @classmethod
         def __class_getitem__(cls, item):
             return POINTER(item)
     _POINTER_TYPE = __pointer
+# ------------------------------------------------------------------------------
 
 # ==============================================================================
-# ===== External constants =====================================================
+# ===== External "constants" ===================================================
 # ==============================================================================
 
-# "Constants" for failsafe check and pause
+# ----- "Constants" for failsafe check and pause -------------------------------
 # Intendend to be modified by callers
 FAILSAFE: bool = True
+'''
+Stop execution if mouse is moved into one of `FAILSAFE_POINTS`.
+Change to disable failsafe behaviour.
+'''
 FAILSAFE_POINTS: list[tuple[int, int]] = [(0, 0)]
-PAUSE: float = 0.01  # 1/100 second pause by default.
+'''
+List of coordinates that trigger failafe exception. (default: top left corner)
+'''
+PAUSE: float = 0.01  # 1/100 second pause by default
+'''
+Default pause interval in seconds if _pause argument isn't set to False.
+1/100 second pause by default.
+'''
+# ------------------------------------------------------------------------------
 
 
-# Constants for the mouse button names
+# ----- Constants for the mouse button names -----------------------------------
 MOUSE_LEFT: Final[str] = "left"
+'''Name of left mouse button'''
 MOUSE_MIDDLE: Final[str] = "middle"
+'''Name of middle mouse button'''
 MOUSE_RIGHT: Final[str] = "right"
+'''Name of right mouse button'''
 MOUSE_PRIMARY: Final[str] = "primary"
+'''Name of primary mouse button (left mouse button unless swapped)'''
 MOUSE_SECONDARY: Final[str] = "secondary"
+'''Name of secondary mouse button (right mouse button unless swapped)'''
 MOUSE_BUTTON4: Final[str] = "mouse4"
+'''Name of first additional mouse button (usually a side button)'''
 MOUSE_X1: Final[str] = "x1"
+'''Name of first additional mouse button (usually a side button)'''
 MOUSE_BUTTON5: Final[str] = "mouse5"
+'''Name of second additional mouse button (usually a side button)'''
 MOUSE_X2: Final[str] = "x2"
+'''Name of second additional mouse button (usually a side button)'''
+# ------------------------------------------------------------------------------
 
 
 # ==============================================================================
@@ -58,23 +84,25 @@ MOUSE_X2: Final[str] = "x2"
 # ==============================================================================
 
 
-# INPUT.type constants
+# ----- INPUT.type constants ---------------------------------------------------
 _INPUT_MOUSE: Literal[0x0000] = 0x0000  # c_ulong(0x0000)
 '''The event is a mouse event. Use the mi structure of the union.'''
 _INPUT_KEYBOARD: Literal[0x0001] = 0x0001  # c_ulong(0x0001)
 '''The event is a keyboard event. Use the ki structure of the union.'''
 _INPUT_HARDWARE: Literal[0x0002] = 0x0002  # c_ulong(0x0002)
 '''The event is a hardware event. Use the hi structure of the union.'''
+# ------------------------------------------------------------------------------
 
 
-# MOUSEINPUT.mouseData constants
+# ----- MOUSEINPUT.mouseData constants -----------------------------------------
 _XBUTTON1: Literal[0x0001] = 0x0001  # c_ulong(0x0001)
 '''Set if the first X button is pressed or released.'''
 _XBUTTON2: Literal[0x0002] = 0x0002  # c_ulong(0x0002)
 '''Set if the second X button is pressed or released.'''
+# ------------------------------------------------------------------------------
 
 
-# MOUSEINPUT.dwFlags constants
+# ----- MOUSEINPUT.dwFlags constants -------------------------------------------
 _MOUSEEVENTF_MOVE: Literal[0x0001] = 0x0001  # c_ulong(0x0001)
 '''Movement occurred.'''
 
@@ -85,6 +113,7 @@ _MOUSEEVENTF_LEFTUP: Literal[0x0004] = 0x0004  # c_ulong(0x0004)
 _MOUSEEVENTF_LEFTCLICK: Final[int] = (
     _MOUSEEVENTF_LEFTDOWN + _MOUSEEVENTF_LEFTUP  # c_ulong(0x0006)
 )
+'''Combined event: Left button was clicked.'''
 
 _MOUSEEVENTF_RIGHTDOWN: Literal[0x0008] = 0x0008  # c_ulong(0x0008)
 '''The right button was pressed.'''
@@ -93,6 +122,7 @@ _MOUSEEVENTF_RIGHTUP: Literal[0x0010] = 0x0010  # c_ulong(0x0010)
 _MOUSEEVENTF_RIGHTCLICK: Final[int] = (
     _MOUSEEVENTF_RIGHTDOWN + _MOUSEEVENTF_RIGHTUP  # c_ulong(0x0018)
 )
+'''Combined event: Right button was clicked.'''
 
 _MOUSEEVENTF_MIDDLEDOWN: Literal[0x0020] = 0x0020  # c_ulong(0x0020)
 '''The middle button was pressed.'''
@@ -101,6 +131,7 @@ _MOUSEEVENTF_MIDDLEUP: Literal[0x0040] = 0x0040  # c_ulong(0x0040)
 _MOUSEEVENTF_MIDDLECLICK: Final[int] = (
     _MOUSEEVENTF_MIDDLEDOWN + _MOUSEEVENTF_MIDDLEUP  # c_ulong(0x0060)
 )
+'''Combined event: Middle button was clicked.'''
 
 _MOUSEEVENTF_XDOWN: Literal[0x0080] = 0x0080  # c_ulong(0x0080)
 '''An X button was pressed.'''
@@ -109,6 +140,7 @@ _MOUSEEVENTF_XUP: Literal[0x0100] = 0x0100  # c_ulong(0x0100)
 _MOUSEEVENTF_XCLICK: Final[int] = (
     _MOUSEEVENTF_XDOWN + _MOUSEEVENTF_XUP  # c_ulong(0x0180)
 )
+'''Combined event: Side button was clicked.'''
 
 _MOUSEEVENTF_WHEEL: Literal[0x0800] = 0x0800  # c_ulong(0x0800)
 '''
@@ -140,11 +172,22 @@ reported position). This flag can be set, or not set, regardless of what kind of
 mouse or other pointing device, if any, is connected to the system. For further
 information about relative mouse motion, see the following Remarks section.
 '''
+# ------------------------------------------------------------------------------
 
+
+# ----- Scrolling distance -----------------------------------------------------
 _WHEEL_DELTA: Literal[120] = 120
+'''
+The delta was set to 120 to allow Microsoft or other vendors to build
+finer-resolution wheels (a freely-rotating wheel with no notches) to send more
+messages per rotation, but with a smaller value in each message.
+
+https://docs.microsoft.com/en-us/windows/win32/inputdev/wm-mousewheel
+'''
+# ------------------------------------------------------------------------------
 
 
-# KEYBDINPUT.dwFlags Flags
+# ----- KEYBDINPUT.dwFlags Flags ------------------------------------------------
 _KEYEVENTF_EXTENDEDKEY: Literal[0x0001] = 0x0001  # c_ulong(0x0001)
 '''
 If specified, the scan code was preceded by a prefix byte that has the value
@@ -163,45 +206,10 @@ For more information, see the Remarks section.
 '''
 _KEYEVENTF_SCANCODE: Literal[0x0008] = 0x0008  # c_ulong(0x0008)
 '''If specified, wScan identifies the key and wVk is ignored.'''
+# ------------------------------------------------------------------------------
 
 
-# MapVirtualKey Map Types
-_MAPVK_VK_TO_VSC: Literal[0] = 0  # c_unit(0)
-'''
-The uCode parameter is a virtual-key code and is translated into a scan code.
-If it is a virtual-key code that does not distinguish between left- and
-right-hand keys, the left-hand scan code is returned.
-If there is no translation, the function returns 0.
-'''
-_MAPVK_VSC_TO_VK: Literal[1] = 1  # c_unit(1)
-'''
-The uCode parameter is a scan code and is translated into a virtual-key code
-that does not distinguish between left- and right-hand keys.
-If there is no translation, the function returns 0.
-'''
-_MAPVK_VK_TO_CHAR: Literal[2] = 2  # c_unit(2)
-'''
-The uCode parameter is a virtual-key code and is translated into an unshifted
-character value in the low order word of the return value. Dead keys
-(diacritics) are indicated by setting the top bit of the return value.
-If there is no translation, the function returns 0.
-'''
-_MAPVK_VSC_TO_VK_EX: Literal[3] = 3  # c_unit(3)
-'''
-The uCode parameter is a scan code and is translated into a virtual-key code
-that distinguishes between left- and right-hand keys.
-If there is no translation, the function returns 0.
-'''
-_MAPVK_VK_TO_VSC_EX: Literal[4] = 4  # c_unit(4)
-'''
-Windows Vista and later: The uCode parameter is a virtual-key code and is
-translated into a scan code. If it is a virtual-key code that does not
-distinguish between left- and right-hand keys, the left-hand scan code is
-returned. If the scan code is an extended scan code, the high byte of the uCode
-value can contain either 0xe0 or 0xe1 to specify the extended scan code.
-If there is no translation, the function returns 0.
-'''
-
+# ----- MOUSEINPUT Remarks -----------------------------------------------------
 '''
 https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-mouseinput#remarks
 
@@ -242,8 +250,49 @@ movement along the x or y axis by up to four times.
 
 [1] https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfoa
 '''
+# ------------------------------------------------------------------------------
 
-# GetSystemMetrics nIndex arguments
+
+# ----- MapVirtualKey Map Types ------------------------------------------------
+_MAPVK_VK_TO_VSC: Literal[0] = 0  # c_unit(0)
+'''
+The uCode parameter is a virtual-key code and is translated into a scan code.
+If it is a virtual-key code that does not distinguish between left- and
+right-hand keys, the left-hand scan code is returned.
+If there is no translation, the function returns 0.
+'''
+_MAPVK_VSC_TO_VK: Literal[1] = 1  # c_unit(1)
+'''
+The uCode parameter is a scan code and is translated into a virtual-key code
+that does not distinguish between left- and right-hand keys.
+If there is no translation, the function returns 0.
+'''
+_MAPVK_VK_TO_CHAR: Literal[2] = 2  # c_unit(2)
+'''
+The uCode parameter is a virtual-key code and is translated into an unshifted
+character value in the low order word of the return value. Dead keys
+(diacritics) are indicated by setting the top bit of the return value.
+If there is no translation, the function returns 0.
+'''
+_MAPVK_VSC_TO_VK_EX: Literal[3] = 3  # c_unit(3)
+'''
+The uCode parameter is a scan code and is translated into a virtual-key code
+that distinguishes between left- and right-hand keys.
+If there is no translation, the function returns 0.
+'''
+_MAPVK_VK_TO_VSC_EX: Literal[4] = 4  # c_unit(4)
+'''
+Windows Vista and later: The uCode parameter is a virtual-key code and is
+translated into a scan code. If it is a virtual-key code that does not
+distinguish between left- and right-hand keys, the left-hand scan code is
+returned. If the scan code is an extended scan code, the high byte of the uCode
+value can contain either 0xe0 or 0xe1 to specify the extended scan code.
+If there is no translation, the function returns 0.
+'''
+# ------------------------------------------------------------------------------
+
+
+# ----- GetSystemMetrics nIndex arguments --------------------------------------
 _SM_CXSCREEN: Literal[0] = 0
 '''
 The width of the screen of the primary display monitor, in pixels. This is the
@@ -260,14 +309,46 @@ same value obtained by calling GetDeviceCaps[1] as follows:
 
 [1] https://docs.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-getdevicecaps
 '''
+_SM_SWAPBUTTON: Literal[23] = 23
+'''
+Nonzero if the meanings of the left and right mouse buttons are swapped;
+otherwise, 0.
+'''
+_SM_XVIRTUALSCREEN: Literal[76] = 76
+'''
+The coordinates for the left side of the virtual screen. The virtual screen is
+the bounding rectangle of all display monitors. The SM_CXVIRTUALSCREEN metric
+is the width of the virtual screen.
+'''
+_SM_YVIRTUALSCREEN: Literal[77] = 77
+'''
+The coordinates for the top of the virtual screen. The virtual screen is the
+bounding rectangle of all display monitors. The SM_CYVIRTUALSCREEN metric is
+the height of the virtual screen.
+'''
+_SM_CXVIRTUALSCREEN: Literal[78] = 78
+'''
+The width of the virtual screen, in pixels. The virtual screen is the bounding
+rectangle of all display monitors. The SM_XVIRTUALSCREEN metric is the
+coordinates for the left side of the virtual screen.
+'''
+_SM_CYVIRTUALSCREEN: Literal[79] = 79
+'''
+The height of the virtual screen, in pixels. The virtual screen is the bounding
+rectangle of all display monitors. The SM_YVIRTUALSCREEN metric is the
+coordinates for the top of the virtual screen.
+'''
+# ------------------------------------------------------------------------------
 
 
-# struct translation constants
+# ----- MOUSEEVENTF Index constants --------------------------------------------
 _MOUSE_PRESS: Literal[0] = 0
 _MOUSE_RELEASE: Literal[1] = 1
 _MOUSE_CLICK: Literal[2] = 2
+# ------------------------------------------------------------------------------
 
 
+# ----- MOUSEEVENTF Lookup dicts -----------------------------------------------
 _MOUSEEVENTF_LEFT: tuple[int, int, int] = (
     _MOUSEEVENTF_LEFTDOWN,
     _MOUSEEVENTF_LEFTUP,
@@ -288,37 +369,53 @@ _MOUSEEVENTF_X: tuple[int, int, int] = (
     _MOUSEEVENTF_XUP,
     _MOUSEEVENTF_XCLICK
 )
-_MOUSE_MAPPING_EVENTF: dict[str, tuple[int, int, int]] = {
-    MOUSE_PRIMARY: _MOUSEEVENTF_LEFT,
-    MOUSE_LEFT: _MOUSEEVENTF_LEFT,
-    MOUSE_MIDDLE: _MOUSEEVENTF_MIDDLE,
-    MOUSE_SECONDARY: _MOUSEEVENTF_RIGHT,
-    MOUSE_RIGHT: _MOUSEEVENTF_RIGHT,
-    MOUSE_BUTTON4: _MOUSEEVENTF_X,
-    MOUSE_X1: _MOUSEEVENTF_X,
-    MOUSE_BUTTON5: _MOUSEEVENTF_X,
-    MOUSE_X2: _MOUSEEVENTF_X,
-}
-_MOUSE_MAPPING_DATA: dict[str, int] = {
-    MOUSE_PRIMARY: 0,
-    MOUSE_LEFT: 0,
-    MOUSE_MIDDLE: 0,
-    MOUSE_SECONDARY: 0,
-    MOUSE_RIGHT: 0,
-    MOUSE_BUTTON4: _XBUTTON1,
-    MOUSE_X1: _XBUTTON1,
-    MOUSE_BUTTON5: _XBUTTON2,
-    MOUSE_X2: _XBUTTON2,
-}
+_MOUSE_MAPPING_EVENTF: dict[str, tuple[int, int, int]] = {}
+_MOUSE_MAPPING_DATA: dict[str, int] = {}
+
+
+def update_MOUSEEVENT_mappings() -> None:
+    '''
+    Update the MOUSEEVENT mappings if you change the name of the button name
+    constants.
+
+    This function MUST be called every time one of the `MOUSE_*` constants
+    is been changed!
+    '''
+    _MOUSE_MAPPING_EVENTF.update({
+        MOUSE_LEFT: _MOUSEEVENTF_LEFT,
+        MOUSE_MIDDLE: _MOUSEEVENTF_MIDDLE,
+        MOUSE_RIGHT: _MOUSEEVENTF_RIGHT,
+        MOUSE_BUTTON4: _MOUSEEVENTF_X,
+        MOUSE_X1: _MOUSEEVENTF_X,
+        MOUSE_BUTTON5: _MOUSEEVENTF_X,
+        MOUSE_X2: _MOUSEEVENTF_X,
+    })
+    _MOUSE_MAPPING_DATA.update({
+        MOUSE_LEFT: 0,
+        MOUSE_MIDDLE: 0,
+        MOUSE_RIGHT: 0,
+        MOUSE_BUTTON4: _XBUTTON1,
+        MOUSE_X1: _XBUTTON1,
+        MOUSE_BUTTON5: _XBUTTON2,
+        MOUSE_X2: _XBUTTON2,
+    })
+
+
+update_MOUSEEVENT_mappings()  # call the function on import to set mappings.
+# ------------------------------------------------------------------------------
 
 
 # ==============================================================================
 # ===== C struct redefinitions =================================================
 # ==============================================================================
+
+# ----- Pointer type to unsigned long ------------------------------------------
 _PUL_PyType: TypeAlias = type[_POINTER_TYPE[c_ulong]]
 _PUL: _PUL_PyType = POINTER(c_ulong)
+# ------------------------------------------------------------------------------
 
 
+# ----- MOUSEINPUT -------------------------------------------------------------
 class _MOUSEINPUT(Structure):
     '''
     MOUSEINPUT structure (winuser.h)
@@ -384,7 +481,7 @@ class _MOUSEINPUT(Structure):
     The time stamp for the event, in milliseconds. If this parameter is 0, the
     system will provide its own time stamp.
     '''
-    dwExtraInfo: _POINTER_TYPE[c_ulong]
+    dwExtraInfo: _PUL_PyType
     '''
     An additional value associated with the keystroke. Use the
     GetMessageExtraInfo[1] function to obtain this information.
@@ -400,8 +497,10 @@ class _MOUSEINPUT(Structure):
         ("time", c_ulong),
         ("dwExtraInfo", _PUL)
     ]
+# ------------------------------------------------------------------------------
 
 
+# ----- KEYBDINPUT -------------------------------------------------------------
 class _KEYBDINPUT(Structure):
     '''
     KEYBDINPUT structure (winuser.h)
@@ -432,7 +531,7 @@ class _KEYBDINPUT(Structure):
     The time stamp for the event, in milliseconds. If this parameter is zero,
     the system will provide its own time stamp.
     '''
-    dwExtraInfo: _POINTER_TYPE[c_ulong]
+    dwExtraInfo: _PUL_PyType
     '''
     An additional value associated with the keystroke. Use the
     GetMessageExtraInfo[1] function to obtain this information.
@@ -447,8 +546,10 @@ class _KEYBDINPUT(Structure):
         ("time", c_ulong),
         ("dwExtraInfo", _PUL)
     ]
+# ------------------------------------------------------------------------------
 
 
+# ----- HARDWAREINPUT ----------------------------------------------------------
 class _HARDWAREINPUT(Structure):
     '''
     HARDWAREINPUT structure (winuser.h)
@@ -471,8 +572,10 @@ class _HARDWAREINPUT(Structure):
         ("wParamL", c_short),
         ("wParamH", c_ushort)
     ]
+# ------------------------------------------------------------------------------
 
 
+# ----- POINT ------------------------------------------------------------------
 class _POINT(Structure):
     '''
     POINT structure
@@ -491,8 +594,10 @@ class _POINT(Structure):
         ("x", c_long),
         ("y", c_long)
     ]
+# ------------------------------------------------------------------------------
 
 
+# ----- INPUT ------------------------------------------------------------------
 class _INPUT_UNION(Union):
     '''
     https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-input
@@ -535,11 +640,14 @@ class _INPUT(Structure):
     _anonymous_ = ('ii', )
     _fields_ = [("type", c_ulong),
                 ("ii", _INPUT_UNION)]
+# ------------------------------------------------------------------------------
 
 
 # ==============================================================================
 # ===== C struct factory functions =============================================
 # ==============================================================================
+
+# ----- _create_mouse_input ----------------------------------------------------
 def _create_mouse_input(
     dx: int = 0,         # c_long
     dy: int = 0,         # c_long
@@ -559,8 +667,10 @@ def _create_mouse_input(
         pointer(dwExtraInfo)
     )
     return input_struct
+# ------------------------------------------------------------------------------
 
 
+# ----- _create_keyboard_input -------------------------------------------------
 def _create_keyboard_input(
     wVk: int = 0,      # c_ushort
     wScan: int = 0,    # c_ushort
@@ -578,8 +688,10 @@ def _create_keyboard_input(
         pointer(dwExtraInfo)
     )
     return input_struct
+# ------------------------------------------------------------------------------
 
 
+# ----- _create_hardware_input -------------------------------------------------
 def _create_hardware_input(  # pyright: ignore[reportUnusedFunction]
     uMsg: int = 0,     # c_ulong
     wParamL: int = 0,  # c_short
@@ -593,15 +705,19 @@ def _create_hardware_input(  # pyright: ignore[reportUnusedFunction]
         wParamH
     )
     return input_struct
+# ------------------------------------------------------------------------------
 
 
 # ==============================================================================
 # ==== User32 functions ========================================================
 # ==============================================================================
+
+# ----- user32.dll -------------------------------------------------------------
 _user32 = windll.user32
+# ------------------------------------------------------------------------------
 
 
-# ----- SendInput --------------------------------------------------------------
+# ----- SendInput Declaration --------------------------------------------------
 class _SendInputType(Protocol):
     argtypes: tuple[type[c_uint], type[_POINTER_TYPE[_INPUT]], type[c_int]]
     restype: type[c_uint]
@@ -707,9 +823,10 @@ def _send_input(
     # execute function
     # inputs_array will be automatically be referenced by pointer
     return _SendInput(cInputs, inputs_array, cbSize)
+# ------------------------------------------------------------------------------
 
 
-# ----- MapVirtualKeyW ---------------------------------------------------------
+# ----- MapVirtualKeyW Declaration ---------------------------------------------
 class _MapVirtualKeyWType(Protocol):
     argtypes: tuple[type[c_uint], type[c_uint]]
     restype: type[c_uint]
@@ -800,7 +917,7 @@ _MapVirtualKeyW.restype = c_uint
 
 def _map_virtual_key(
     uCode: int,
-    uMapType: Literal[0, 1, 2, 3]
+    uMapType: Literal[0, 1, 2, 3, 4]
 ) -> int:
     '''
     Abstraction layer over MapVirtualKeyW (winuser.h)
@@ -808,9 +925,10 @@ def _map_virtual_key(
     See https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mapvirtualkeyw
     '''
     return _MapVirtualKeyW(c_uint(uCode), c_uint(uMapType))
+# ------------------------------------------------------------------------------
 
 
-# ----- GetSystemMetrics -------------------------------------------------------
+# ----- GetSystemMetrics Declaration -------------------------------------------
 class _GetSystemMetricsType(Protocol):
     argtypes: tuple[type[c_int]]
     restype: type[c_int]
@@ -886,9 +1004,10 @@ def _get_system_metrics(nIndex: int) -> int:
     See https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getsystemmetrics
     '''
     return _GetSystemMetrics(nIndex)
+# ------------------------------------------------------------------------------
 
 
-# ----- GetCursorPos -----------------------------------------------------------
+# ----- GetCursorPos Declaration -----------------------------------------------
 class _GetCursorPosType(Protocol):
     argtypes: tuple[type[_POINTER_TYPE[_POINT]]]
     restype: type[c_bool]
@@ -955,14 +1074,38 @@ def _get_cursor_pos() -> _POINT:
     # cursor will be automatically be referenced by pointer
     _GetCursorPos(cursor)
     return cursor
+# ------------------------------------------------------------------------------
 
 
 # ==============================================================================
 # ===== Keyboard Scan Code Mappings ============================================
 # ==============================================================================
-_OFFSET_EXTENDEDKEY: Literal[0x10000] = 0x10000
-_OFFSET_SHIFTKEY: Literal[0x20000] = 0x20000
 
+# ----- Offsets for values in KEYBOARD_MAPPING ---------------------------------
+_OFFSET_EXTENDEDKEY: Literal[0xE000] = 0xE000
+_OFFSET_SHIFTKEY: Literal[0x10000] = 0x10000
+_OFFSET_KEYSEQUENCE: Literal[0x20000] = 0x20000
+# ------------------------------------------------------------------------------
+
+
+# ----- Magic constants to indicate extended key sequences ---------------------
+_PAUSE_SEQUENCE: Final[int] = 0x00 + _OFFSET_KEYSEQUENCE
+_PRINTSCREEN_SEQUENCE: Final[int] = 0x01 + _OFFSET_KEYSEQUENCE
+# ------------------------------------------------------------------------------
+
+
+# ----- Extended key sequences for KEYBOARD_MAPPING ----------------------------
+_SCANCODE_SEQUENCES: dict[int, list[int]] = {
+    _PAUSE_SEQUENCE: [0xE11D, 0x45, 0xE19D, 0xC5],
+    _PRINTSCREEN_SEQUENCE: [0xE02A, 0xE037],
+}
+# ------------------------------------------------------------------------------
+
+
+# ----- KEYBOARD_MAPPING -------------------------------------------------------
+_SHIFT_SCANCODE: Literal[0x2A] = 0x2A  # Used in auto-shifting
+# should be keyboard MAKE scancodes ( <0x80 )
+# some keys require the use of EXTENDEDKEY flags, they
 KEYBOARD_MAPPING: dict[str, int] = {
     'escape': 0x01,
     'esc': 0x01,
@@ -978,12 +1121,13 @@ KEYBOARD_MAPPING: dict[str, int] = {
     'f10': 0x44,
     'f11': 0x57,
     'f12': 0x58,
-    'printscreen': 0xB7,
-    'prntscrn': 0xB7,
-    'prtsc': 0xB7,
-    'prtscr': 0xB7,
+    'printscreen': 0x54,  # same result as _PRINTSCREEN_SEQUENCE
+    'prntscrn': 0x54,  # same result as _PRINTSCREEN_SEQUENCE
+    'prtsc': 0x54,  # same result as _PRINTSCREEN_SEQUENCE
+    'prtscr': 0x54,  # same result as _PRINTSCREEN_SEQUENCE
     'scrolllock': 0x46,
-    'pause': 0xC5,
+    'ctrlbreak': 0x46 + _OFFSET_EXTENDEDKEY,
+    'pause': _PAUSE_SEQUENCE,
     '`': 0x29,
     '1': 0x02,
     '2': 0x03,
@@ -1011,18 +1155,22 @@ KEYBOARD_MAPPING: dict[str, int] = {
     '_': 0x0C + _OFFSET_SHIFTKEY,
     '+': 0x0D + _OFFSET_SHIFTKEY,
     'backspace': 0x0E,
-    'insert': 0xD2 + _OFFSET_EXTENDEDKEY,
-    'home': 0xC7 + _OFFSET_EXTENDEDKEY,
-    'pageup': 0xC9 + _OFFSET_EXTENDEDKEY,
-    'pagedown': 0xD1 + _OFFSET_EXTENDEDKEY,
+    '\b': 0x0E,
+    'insert': 0x52 + _OFFSET_EXTENDEDKEY,
+    'home': 0x47 + _OFFSET_EXTENDEDKEY,
+    'pageup': 0x49 + _OFFSET_EXTENDEDKEY,
+    'pgup': 0x49 + _OFFSET_EXTENDEDKEY,
+    'pagedown': 0x51 + _OFFSET_EXTENDEDKEY,
+    'pgdn': 0x51 + _OFFSET_EXTENDEDKEY,
     # numpad
     'numlock': 0x45,
-    'divide': 0xB5 + _OFFSET_EXTENDEDKEY,
+    'divide': 0x35 + _OFFSET_EXTENDEDKEY,
     'multiply': 0x37,
     'subtract': 0x4A,
     'add': 0x4E,
     'decimal': 0x53,
-    'numpadenter': 0x9C + _OFFSET_EXTENDEDKEY,
+    'numperiod': 0x53,
+    'numpadenter': 0x1C + _OFFSET_EXTENDEDKEY,
     'numpad1': 0x4F,
     'numpad2': 0x50,
     'numpad3': 0x51,
@@ -1032,7 +1180,18 @@ KEYBOARD_MAPPING: dict[str, int] = {
     'numpad7': 0x47,
     'numpad8': 0x48,
     'numpad9': 0x49,
-    'numpad0': 0x52,
+    'num0': 0x52,
+    'num1': 0x4F,
+    'num2': 0x50,
+    'num3': 0x51,
+    'num4': 0x4B,
+    'num5': 0x4C,
+    'num6': 0x4D,
+    'num7': 0x47,
+    'num8': 0x48,
+    'num9': 0x49,
+    'num0': 0x52,
+    'clear': 0x4C,  # name from pyautogui
     # end numpad
     'tab': 0x0F,
     '\t': 0x0F,
@@ -1062,9 +1221,9 @@ KEYBOARD_MAPPING: dict[str, int] = {
     '{': 0x1A + _OFFSET_SHIFTKEY,
     '}': 0x1B + _OFFSET_SHIFTKEY,
     '|': 0x2B + _OFFSET_SHIFTKEY,
-    'del': 0xD3 + _OFFSET_EXTENDEDKEY,
-    'delete': 0xD3 + _OFFSET_EXTENDEDKEY,
-    'end': 0xCF + _OFFSET_EXTENDEDKEY,
+    'del': 0x53 + _OFFSET_EXTENDEDKEY,
+    'delete': 0x53 + _OFFSET_EXTENDEDKEY,
+    'end': 0x4F + _OFFSET_EXTENDEDKEY,
     'capslock': 0x3A,
     'a': 0x1E,
     's': 0x1F,
@@ -1091,8 +1250,8 @@ KEYBOARD_MAPPING: dict[str, int] = {
     'enter': 0x1C,
     'return': 0x1C,
     '\n': 0x1C,
-    'shift': 0x2A,
-    'shiftleft': 0x2A,
+    'shift': _SHIFT_SCANCODE,
+    'shiftleft': _SHIFT_SCANCODE,
     'z': 0x2C,
     'x': 0x2D,
     'c': 0x2E,
@@ -1116,18 +1275,19 @@ KEYBOARD_MAPPING: dict[str, int] = {
     'shiftright': 0x36,
     'ctrl': 0x1D,
     'ctrlleft': 0x1D,
-    'win': 0xDB + _OFFSET_EXTENDEDKEY,
+    'win': 0x5B + _OFFSET_EXTENDEDKEY,
+    'super': 0x5B + _OFFSET_EXTENDEDKEY,  # name from pyautogui
     'winleft': 0x5B + _OFFSET_EXTENDEDKEY,
     'alt': 0x38,
     'altleft': 0x38,
     ' ': 0x39,
     'space': 0x39,
-    'altright': 0xB8 + _OFFSET_EXTENDEDKEY,
+    'altright': 0x38 + _OFFSET_EXTENDEDKEY,
     'winright': 0x5C + _OFFSET_EXTENDEDKEY,
     'apps': 0x5D + _OFFSET_EXTENDEDKEY,
     'context': 0x5D + _OFFSET_EXTENDEDKEY,
     'contextmenu': 0x5D + _OFFSET_EXTENDEDKEY,
-    'ctrlright': 0x9D + _OFFSET_EXTENDEDKEY,
+    'ctrlright': 0x1D + _OFFSET_EXTENDEDKEY,
     # Originally from learncodebygaming/pydirectinput:
     # arrow key scancodes can be different depending on the hardware,
     # so I think the best solution is to look it up based on the virtual key
@@ -1142,22 +1302,33 @@ KEYBOARD_MAPPING: dict[str, int] = {
     # 2, 4, 6, and 8 with EXTENDEDKEY flag.
     # In fact, looking up the virtual key codes will just return the very same
     # scancodes the Numpad keys occupy.
+    'help': 0x63,
+    'sleep': 0x5f + _OFFSET_EXTENDEDKEY,
     'medianext': 0x19 + _OFFSET_EXTENDEDKEY,
+    'nexttrack': 0x19 + _OFFSET_EXTENDEDKEY,
     'mediaprevious': 0x10 + _OFFSET_EXTENDEDKEY,
+    'prevtrack': 0x10 + _OFFSET_EXTENDEDKEY,
     'mediastop': 0x24 + _OFFSET_EXTENDEDKEY,
+    'stop': 0x24 + _OFFSET_EXTENDEDKEY,
     'mediaplay': 0x22 + _OFFSET_EXTENDEDKEY,
     'mediapause': 0x22 + _OFFSET_EXTENDEDKEY,
+    'playpause': 0x22 + _OFFSET_EXTENDEDKEY,
     'mute': 0x20 + _OFFSET_EXTENDEDKEY,
+    'volumemute': 0x20 + _OFFSET_EXTENDEDKEY,
     'volumeup': 0x30 + _OFFSET_EXTENDEDKEY,
     'volup': 0x30 + _OFFSET_EXTENDEDKEY,
     'volumedown': 0x2E + _OFFSET_EXTENDEDKEY,
     'voldown': 0x2E + _OFFSET_EXTENDEDKEY,
-    'mediaselect': 0x6D + _OFFSET_EXTENDEDKEY,
+    'media': 0x6D + _OFFSET_EXTENDEDKEY,
+    'launchmediaselect': 0x6D + _OFFSET_EXTENDEDKEY,
     'email': 0x6C + _OFFSET_EXTENDEDKEY,
+    'launchmail': 0x6C + _OFFSET_EXTENDEDKEY,
     'calculator': 0x21 + _OFFSET_EXTENDEDKEY,
     'calc': 0x21 + _OFFSET_EXTENDEDKEY,
     'launch1': 0x6B + _OFFSET_EXTENDEDKEY,
+    'launchapp1': 0x6B + _OFFSET_EXTENDEDKEY,
     'launch2': 0x21 + _OFFSET_EXTENDEDKEY,
+    'launchapp2': 0x21 + _OFFSET_EXTENDEDKEY,
     'browsersearch': 0x65 + _OFFSET_EXTENDEDKEY,
     'browserhome': 0x32 + _OFFSET_EXTENDEDKEY,
     'browserforward': 0x69 + _OFFSET_EXTENDEDKEY,
@@ -1182,17 +1353,34 @@ KEYBOARD_MAPPING: dict[str, int] = {
 Maps a string representation of keyboard keys to their corresponding hardware
 scan code. Based on standard US QWERTY-Layout.
 '''
+# ------------------------------------------------------------------------------
 
 
 # ==============================================================================
 # ===== Fail Safe and Pause implementation =====================================
 # ==============================================================================
 
+# ----- Exceptions -------------------------------------------------------------
 class FailSafeException(Exception):
+    '''Raised when _failSafeCheck detects failsafe mouse position.'''
     pass
 
 
+class PriorInputFailedException(Exception):
+    '''Raised in hold() context managers when raise_on_failure is set.'''
+    pass
+# ------------------------------------------------------------------------------
+
+
+# ----- Failsafe Check ---------------------------------------------------------
 def _failSafeCheck() -> None:
+    '''
+    Check if mouse has been moved into one of the defined failsafe points,
+    indicated by global var `FAILSAFE_POINTS`, and raise `FailSafeException`
+    if that's the case.
+
+    Set global var `FAILSAFE` to False to stop raising exceptions.
+    '''
     if FAILSAFE and tuple(_position()) in FAILSAFE_POINTS:
         raise FailSafeException(
             "PyDirectInput fail-safe triggered from mouse moving to a corner "
@@ -1200,8 +1388,10 @@ def _failSafeCheck() -> None:
             "To disable this fail-safe, set pydirectinput.FAILSAFE to False. "
             "DISABLING FAIL-SAFE IS NOT RECOMMENDED."
         )
+# ------------------------------------------------------------------------------
 
 
+# ----- handle pause for generic input checks ----------------------------------
 def _handlePause(_pause: Any) -> None:
     '''
     Pause the default amount of time if `_pause=True` in function arguments.
@@ -1209,35 +1399,54 @@ def _handlePause(_pause: Any) -> None:
     if _pause:
         assert isinstance(PAUSE, int) or isinstance(PAUSE, float)
         time.sleep(PAUSE)
+# ------------------------------------------------------------------------------
 
 
-RT = TypeVar('RT')  # return type
+# ----- generic input check decorator ------------------------------------------
+_PS = ParamSpec('_PS')  # param spec
+_RT = TypeVar('_RT')  # return type
 
 
 # direct copy of _genericPyAutoGUIChecks()
 def _genericPyDirectInputChecks(
-    wrappedFunction: Callable[..., RT]
-) -> Callable[..., RT]:
-    '''Decorator for wrapping input functions'''
+    wrappedFunction: Callable[_PS, _RT]
+) -> Callable[_PS, _RT]:
+    '''
+    Decorator for wrapping input functions.
+
+    Performs failsafe checking and inserts artifical delay after input
+    functions have been executed unless disabled.
+
+    The delay amount is set by global var `PAUSE`.
+    '''
     @functools.wraps(wrappedFunction)
-    def wrapper(*args: Any, **kwargs: Any):
+    def wrapper(*args: _PS.args, **kwargs: _PS.kwargs) -> _RT:
         funcArgs = inspect.getcallargs(wrappedFunction, *args, **kwargs)
         _failSafeCheck()
         returnVal = wrappedFunction(*args, **kwargs)
         _handlePause(funcArgs.get("_pause"))
         return returnVal
     return wrapper
+# ------------------------------------------------------------------------------
 
 
 # ==============================================================================
 # ===== Helper Functions =======================================================
 # ==============================================================================
 
-def _to_windows_coordinates(x: int = 0, y: int = 0) -> tuple[int, int]:
+# ----- translate pixels to normalized Windows coordinates ---------------------
+def _to_windows_coordinates(
+    x: int = 0,
+    y: int = 0,
+    *,
+    virtual: bool = False
+) -> tuple[int, int]:
     '''
-    Convert x,y coordinates to windows form and return as tuple (x, y).
+    Convert x,y coordinates to normalized windows coordinates and return as
+    tuple (x, y).
     '''
-    display_width, display_height = _size()
+    size: Sequence[int] = _virtual_size() if virtual else _size()
+    display_width, display_height = size[0:2]
 
     # the +1 here prevents exactly mouse movements from sometimes ending up
     # off by 1 pixel
@@ -1245,45 +1454,88 @@ def _to_windows_coordinates(x: int = 0, y: int = 0) -> tuple[int, int]:
     windows_y = (y * 65536) // display_height + 1
 
     return windows_x, windows_y
+# ------------------------------------------------------------------------------
 
 
-# position() works exactly the same as PyAutoGUI.
-# I've duplicated it here so that moveRel() can use it to calculate
-# relative mouse positions.
-def _position(x: int | None = None, y: int | None = None) -> tuple[int, int]:
+# ----- get mouse position -----------------------------------------------------
+def _position(
+    x: int | float | None = None,
+    y: int | float | None = None
+) -> tuple[int, int]:
     '''
-    Return the current mouse position as tuple (x, y).
+    Return a postion tuple (x, y).
+
+    If x and/or y argument(s) ar not given, use current mouse cursor coordinate
+    instead.
     '''
     cursor = _get_cursor_pos()
-    return (x if x else cursor.x, y if y else cursor.y)
+    return (
+        cursor.x if x is None else int(x),
+        cursor.y if y is None else int(y)
+    )
+# ------------------------------------------------------------------------------
 
 
-# size() works exactly the same as PyAutoGUI.
-# I've duplicated it here so that _to_windows_coordinates() can use it
-# to calculate the window size.
+# ----- get primary screen resolution ------------------------------------------
 def _size() -> tuple[int, int]:
     '''
-    Return the display size as tuple (x, y).
+    Return the size of the primary display as tuple (`width`, `height`).
     '''
     return (
         _get_system_metrics(_SM_CXSCREEN),
         _get_system_metrics(_SM_CYSCREEN)
     )
+# ------------------------------------------------------------------------------
 
 
+# ----- get resolution of multi monitor bounding box ---------------------------
+def _virtual_size() -> tuple[int, int, int, int]:
+    '''
+    Return the the display size of the complete virtual monitor bounding box
+    rectangle as tuple (`width`, `height`, `left_offset`, `top_offset`).
+
+    On a single monitor system, this function is equal to (*_size(), 0, 0).
+
+    `left_offset` and `top_offset` are measured from the top left pixel of the
+    primary monitor.
+    '''
+    return (
+        _get_system_metrics(_SM_CXVIRTUALSCREEN),
+        _get_system_metrics(_SM_CYVIRTUALSCREEN),
+        _get_system_metrics(_SM_XVIRTUALSCREEN),
+        _get_system_metrics(_SM_YVIRTUALSCREEN),
+    )
+# ------------------------------------------------------------------------------
+
+
+# ----- lookup function for MOUSEINPUT data ------------------------------------
 def _get_mouse_struct_data(
     button: str,
     method: Literal[0, 1, 2]
 ) -> tuple[int | None, int]:
-    '''Translate a button string to INPUT struct data'''
+    '''
+    Translate a button string to INPUT struct data.
+
+    Automatically detect the correct button if MOUSE_PRIMARY or MOUSE_SECONDARY
+    are given as the button argument.
+    '''
     if not (0 <= method <= 2):
         raise ValueError(f"method index {method} is not a valid argument!")
+    buttons_swapped: bool
+    if button == MOUSE_PRIMARY:
+        buttons_swapped = (_get_system_metrics(_SM_SWAPBUTTON) != 0)
+        button = MOUSE_RIGHT if buttons_swapped else MOUSE_LEFT
+    elif button == MOUSE_SECONDARY:
+        buttons_swapped = (_get_system_metrics(_SM_SWAPBUTTON) != 0)
+        button = MOUSE_LEFT if buttons_swapped else MOUSE_RIGHT
     event_value: int | None
     event_value = _MOUSE_MAPPING_EVENTF.get(button, (None, None, None))[method]
     mouseData: int = _MOUSE_MAPPING_DATA.get(button, 0)
     return event_value, mouseData
+# ------------------------------------------------------------------------------
 
 
+# ----- normalize key name to lower case if not shifiting ----------------------
 def _normalize_key(
     key: str,
     *,
@@ -1294,28 +1546,61 @@ def _normalize_key(
     character or automatic shifting is disabled (default).
     '''
     return key.lower() if (len(key) > 1 or not auto_shift) else key
+# ------------------------------------------------------------------------------
 
 
 # ==============================================================================
 # ===== Main Mouse Functions ===================================================
 # ==============================================================================
 
-# Ignored parameters: duration, tween, logScreenshot
+# ----- mouseDown --------------------------------------------------------------
 @_genericPyDirectInputChecks
 def mouseDown(
     x: int | None = None,
     y: int | None = None,
     button: str = MOUSE_PRIMARY,
-    duration: float | None = None,
+    duration: float = 0.0,
     tween: None = None,
     logScreenshot: bool = False,
     _pause: bool = True,
+    *,
+    relative: bool = False,
+    virtual: bool = False,
 ) -> None:
     '''
     Press down mouse button `button`.
+
+    If `x` or `y` are given and not None, then the mouse will move the indicated
+    postion before pressing the button.
+
+    `button` is the name of the button to press. Use the public `MOUSE_*`
+    constants to get valid argument values. (If you change the constants, then
+    you will have to call `update_MOUSEEVENT_mappings()` to resync the lookup
+    functions)
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    `duration`, `tween`, `relative` and `virtual` are only relevant if x or y
+    are given. See `moveTo()` for further information.
+
+    Raises `ValueError` if `button` is not a valid mouse button name.
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
+    # TODO: bounding box check for valid position
     if x is not None or y is not None:
-        moveTo(x, y)
+        moveTo(
+            x,
+            y,
+            duration=duration,
+            tween=tween,
+            logScreenshot=logScreenshot,
+            _pause=False,  # don't add an additional pause
+            relative=relative,
+            virtual=virtual
+        )
 
     event_value: int | None = None
     mouseData: int
@@ -1323,8 +1608,10 @@ def mouseDown(
 
     if not event_value:
         raise ValueError(
-            'button arg to _click() must be one of "left", "middle", or '
-            f'"right", not {button}'
+            f'Invalid button argument! '
+            f'Expected "{MOUSE_LEFT}", "{MOUSE_RIGHT}", "{MOUSE_MIDDLE}", '
+            f'"{MOUSE_BUTTON4}", "{MOUSE_BUTTON5}", "{MOUSE_PRIMARY}" or '
+            f'"{MOUSE_SECONDARY}"; got "{button}" instead!'
         )
 
     input_struct = _create_mouse_input(
@@ -1333,24 +1620,57 @@ def mouseDown(
     )
 
     _send_input(input_struct)
+# ------------------------------------------------------------------------------
 
 
-# Ignored parameters: duration, tween, logScreenshot
+# ----- mouseUp ----------------------------------------------------------------
 @_genericPyDirectInputChecks
 def mouseUp(
     x: int | None = None,
     y: int | None = None,
     button: str = MOUSE_PRIMARY,
-    duration: float | None = None,
+    duration: float = 0.0,
     tween: None = None,
     logScreenshot: bool = False,
     _pause: bool = True,
+    *,
+    relative: bool = False,
+    virtual: bool = False,
 ) -> None:
     '''
     Lift up mouse button `button`.
+
+    If `x` or `y` are given and not None, then the mouse will move the indicated
+    postion before lifting the button.
+
+    `button` is the name of the button to press. Use the public `MOUSE_*`
+    constants to get valid argument values. (If you change the constants, then
+    you will have to call `update_MOUSEEVENT_mappings()` to resync the lookup
+    functions)
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    `duration`, `tween`, `relative` and `virtual` are only relevant if x or y
+    are given. See `moveTo()` for further information.
+
+    Raises `ValueError` if `button` is not a valid mouse button name.
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
+    # TODO: bounding box check for valid position
     if x is not None or y is not None:
-        moveTo(x, y)
+        moveTo(
+            x,
+            y,
+            duration=duration,
+            tween=tween,
+            logScreenshot=logScreenshot,
+            _pause=False,  # don't add an additional pause
+            relative=relative,
+            virtual=virtual
+        )
 
     event_value: int | None = None
     mouseData: int
@@ -1358,8 +1678,10 @@ def mouseUp(
 
     if not event_value:
         raise ValueError(
-            'button arg to _click() must be one of "left", "middle", or '
-            f'"right", not {button}'
+            f'Invalid button argument! '
+            f'Expected "{MOUSE_LEFT}", "{MOUSE_RIGHT}", "{MOUSE_MIDDLE}", '
+            f'"{MOUSE_BUTTON4}", "{MOUSE_BUTTON5}", "{MOUSE_PRIMARY}" or '
+            f'"{MOUSE_SECONDARY}"; got "{button}" instead!'
         )
 
     input_struct = _create_mouse_input(
@@ -1368,9 +1690,10 @@ def mouseUp(
     )
 
     _send_input(input_struct)
+# ------------------------------------------------------------------------------
 
 
-# Ignored parameters: duration, tween, logScreenshot
+# ----- click ------------------------------------------------------------------
 @_genericPyDirectInputChecks
 def click(
     x: int | None = None,
@@ -1378,16 +1701,53 @@ def click(
     clicks: int = 1,
     interval: float = 0.0,
     button: str = MOUSE_PRIMARY,
-    duration: float | None = None,
+    duration: float = 0.0,
     tween: None = None,
     logScreenshot: bool = False,
     _pause: bool = True,
+    *,
+    relative: bool = False,
+    virtual: bool = False,
 ) -> None:
     '''
-    Click mouse button `button` (String left|right|middle).
+    Click mouse button `button` (combining press down and lift up).
+
+    If `x` or `y` are given and not None, then the mouse will move the indicated
+    postion before clicking the button.
+
+    `button` is the name of the button to press. Use the public `MOUSE_*`
+    constants to get valid argument values. (If you change the constants, then
+    you will have to call `update_MOUSEEVENT_mappings()` to resync the lookup
+    functions)
+
+    `clicks` is an integer that determines the amount of times the button will
+    be clicked.
+
+    `interval` is the wait time in seconds between clicks.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    `duration`, `tween`, `relative` and `virtual` are only relevant if x or y
+    are given. See `moveTo()` for further information.
+
+    Raises `ValueError` if `button` is not a valid mouse button name.
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
+    # TODO: bounding box check for valid position
     if x is not None or y is not None:
-        moveTo(x, y)
+        moveTo(
+            x,
+            y,
+            duration=duration,
+            tween=tween,
+            logScreenshot=logScreenshot,
+            _pause=False,  # don't add an additional pause
+            relative=relative,
+            virtual=virtual
+        )
 
     event_value: int | None = None
     mouseData: int
@@ -1395,8 +1755,10 @@ def click(
 
     if not event_value:
         raise ValueError(
-            'button arg to _click() must be one of "left", "middle", or '
-            f'"right", not {button}'
+            f'Invalid button argument! '
+            f'Expected "{MOUSE_LEFT}", "{MOUSE_RIGHT}", "{MOUSE_MIDDLE}", '
+            f'"{MOUSE_BUTTON4}", "{MOUSE_BUTTON5}", "{MOUSE_PRIMARY}" or '
+            f'"{MOUSE_SECONDARY}"; got "{button}" instead!'
         )
 
     for _ in range(clicks):
@@ -1409,8 +1771,10 @@ def click(
 
         _send_input(input_struct)
         time.sleep(interval)
+# ------------------------------------------------------------------------------
 
 
+# ----- leftClick --------------------------------------------------------------
 def leftClick(
     x: int | None = None,
     y: int | None = None,
@@ -1419,9 +1783,14 @@ def leftClick(
     tween: None = None,
     logScreenshot: bool = False,
     _pause: bool = True,
+    *,
+    relative: bool = False,
+    virtual: bool = False,
 ) -> None:
     '''
     Click Left Mouse button.
+
+    See `click()` for more information
     '''
     click(
         x,
@@ -1432,10 +1801,14 @@ def leftClick(
         duration=duration,
         tween=tween,
         logScreenshot=logScreenshot,
-        _pause=_pause
+        _pause=_pause,  # Keep _pause since this function has no input checks
+        relative=relative,
+        virtual=virtual
     )
+# ------------------------------------------------------------------------------
 
 
+# ----- rightClick -------------------------------------------------------------
 def rightClick(
     x: int | None = None,
     y: int | None = None,
@@ -1444,9 +1817,14 @@ def rightClick(
     tween: None = None,
     logScreenshot: bool = False,
     _pause: bool = True,
+    *,
+    relative: bool = False,
+    virtual: bool = False,
 ) -> None:
     '''
     Click Right Mouse button.
+
+    See `click()` for more information
     '''
     click(
         x,
@@ -1457,10 +1835,14 @@ def rightClick(
         duration=duration,
         tween=tween,
         logScreenshot=logScreenshot,
-        _pause=_pause
+        _pause=_pause,  # Keep _pause since this function has no input checks
+        relative=relative,
+        virtual=virtual
     )
+# ------------------------------------------------------------------------------
 
 
+# ----- middleClick ------------------------------------------------------------
 def middleClick(
     x: int | None = None,
     y: int | None = None,
@@ -1469,9 +1851,14 @@ def middleClick(
     tween: None = None,
     logScreenshot: bool = False,
     _pause: bool = True,
+    *,
+    relative: bool = False,
+    virtual: bool = False,
 ) -> None:
     '''
     Click Middle Mouse button.
+
+    See `click()` for more information
     '''
     click(
         x,
@@ -1482,10 +1869,14 @@ def middleClick(
         duration=duration,
         tween=tween,
         logScreenshot=logScreenshot,
-        _pause=_pause
+        _pause=_pause,  # Keep _pause since this function has no input checks
+        relative=relative,
+        virtual=virtual
     )
+# ------------------------------------------------------------------------------
 
 
+# ----- doubleClick ------------------------------------------------------------
 def doubleClick(
     x: int | None = None,
     y: int | None = None,
@@ -1495,9 +1886,14 @@ def doubleClick(
     tween: None = None,
     logScreenshot: bool = False,
     _pause: bool = True,
+    *,
+    relative: bool = False,
+    virtual: bool = False,
 ) -> None:
     '''
     Double click `button`.
+
+    See `click()` for more information
     '''
     click(
         x,
@@ -1508,10 +1904,14 @@ def doubleClick(
         duration=duration,
         tween=tween,
         logScreenshot=logScreenshot,
-        _pause=_pause
+        _pause=_pause,  # Keep _pause since this function has no input checks
+        relative=relative,
+        virtual=virtual
     )
+# ------------------------------------------------------------------------------
 
 
+# ----- tripleClick ------------------------------------------------------------
 def tripleClick(
     x: int | None = None,
     y: int | None = None,
@@ -1521,9 +1921,14 @@ def tripleClick(
     tween: None = None,
     logScreenshot: bool = False,
     _pause: bool = True,
+    *,
+    relative: bool = False,
+    virtual: bool = False,
 ) -> None:
     '''
     Triple click `button`.
+
+    See `click()` for more information
     '''
     click(
         x,
@@ -1534,19 +1939,43 @@ def tripleClick(
         duration=duration,
         tween=tween,
         logScreenshot=logScreenshot,
-        _pause=_pause
+        _pause=_pause,  # Keep _pause since this function has no input checks
+        relative=relative,
+        virtual=virtual
     )
+# ------------------------------------------------------------------------------
 
 
+# ----- scroll -----------------------------------------------------------------
 # Originally implemented by
 # https://github.com/learncodebygaming/pydirectinput/pull/22
-# A negative number of clicks will scroll down and a positive number will
-# scroll up
 @_genericPyDirectInputChecks
-def scroll(clicks: int = 0, interval: float = 0) -> None:
+def scroll(
+    clicks: int = 0,
+    x: Any = None,  # x and y do absolutely nothing, still keeping the arguments
+    y: Any = None,  # to stay consistent with PyAutoGUI.
+    logScreenshot: bool = False,
+    _pause: bool = True,
+    *,
+    interval: float = 0.0
+) -> None:
     '''
-    Mouse scroll `clicks` number of times, waiting `interval` seconds between
-    every scroll.
+    Vertically scroll mouse `clicks` number of times, waiting `interval`
+    seconds between every scroll.
+
+    Negative values of `clicks` will scroll down, postive values will scroll
+    up.
+
+    `x` and `y` are intentionally ignored and only exists to keep the call
+    signature backwards-compatible with PyAutoGui.
+    If you need to change the mouse position before scrolling use one of the
+    `move()` functions.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
     direction: Literal[-1, 1]
     if clicks >= 0:
@@ -1562,13 +1991,37 @@ def scroll(clicks: int = 0, interval: float = 0) -> None:
         )
         _send_input(input_struct)
         time.sleep(interval)
+# ------------------------------------------------------------------------------
 
 
+# ----- hscroll ----------------------------------------------------------------
 @_genericPyDirectInputChecks
-def hscroll(clicks: int = 0, interval: float = 0) -> None:
+def hscroll(
+    clicks: int = 0,
+    x: Any = None,  # x and y do absolutely nothing, still keeping the arguments
+    y: Any = None,  # to stay consistent with PyAutoGUI.
+    logScreenshot: bool = False,
+    _pause: bool = True,
+    *,
+    interval: float = 0.0
+) -> None:
     '''
-    Mouse scroll `clicks` number of times, waiting `interval` seconds between
-    every scroll.
+    Horizontally scroll mouse `clicks` number of times, waiting `interval`
+    seconds between every scroll.
+
+    Negative values of `clicks` will scroll left, postive values will scroll
+    right.
+
+    `x` and `y` are intentionally ignored and only exists to keep the call
+    signature backwards-compatible with PyAutoGui.
+    If you need to change the mouse position before scrolling use one of the
+    `move()` functions.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
     if clicks >= 0:
         direction = 1
@@ -1583,8 +2036,15 @@ def hscroll(clicks: int = 0, interval: float = 0) -> None:
         )
         _send_input(input_struct)
         time.sleep(interval)
+# ------------------------------------------------------------------------------
 
 
+# ----- scroll alias -----------------------------------------------------------
+vscroll = scroll
+# ------------------------------------------------------------------------------
+
+
+# ----- moveTo -----------------------------------------------------------------
 # Ignored parameters: duration, tween, logScreenshot
 # PyAutoGUI uses ctypes.windll.user32.SetCursorPos(x, y) for this,
 # which might still work fine in DirectInput environments.
@@ -1596,33 +2056,57 @@ def hscroll(clicks: int = 0, interval: float = 0) -> None:
 def moveTo(
     x: int | None = None,
     y: int | None = None,
-    duration: None = None,
+    duration: float = 0.0,
     tween: None = None,
     logScreenshot: bool = False,
     _pause: bool = True,
-    relative: bool = False
+    relative: bool = False,
+    *,
+    virtual: bool = False,
 ) -> None:
     '''
-    Move the mouse to an absolute(*) postion.
+    Move the mouse to an absolute(*) postion indicated by the arguments of
+    `x` and `y`.
 
     (*) If `relative is True`: use `moveRel(..., relative=True) to move.`
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    NOTE: `logScreenshot`, `tween`, `duration` are currently unsupported.
     '''
+    # TODO: bounding box check for valid position
     if not relative:
         # if only x or y is provided, will keep the current position for the
         # other axis
-        x, y = _to_windows_coordinates(*_position(x, y))
+        x, y = _to_windows_coordinates(*_position(x, y), virtual=virtual)
+        dwFlags: int = (_MOUSEEVENTF_MOVE | _MOUSEEVENTF_ABSOLUTE)
+        if virtual:
+            dwFlags |= _MOUSEEVENTF_VIRTUALDESK
         input_struct = _create_mouse_input(
             dx=x, dy=y,
-            dwFlags=(_MOUSEEVENTF_MOVE | _MOUSEEVENTF_ABSOLUTE)
+            dwFlags=dwFlags
         )
         _send_input(input_struct)
     else:
         currentX, currentY = _position()
         if x is None or y is None:
             raise ValueError("x and y have to be integers if relative is set!")
-        moveRel(x - currentX, y - currentY, relative=True)
+        moveRel(
+            x - currentX,
+            y - currentY,
+            duration=duration,
+            tween=tween,
+            logScreenshot=logScreenshot,
+            _pause=False,  # Don't add an additional pause
+            relative=True,
+            virtual=virtual
+        )
+# ------------------------------------------------------------------------------
 
 
+# ----- moveRel ----------------------------------------------------------------
 # Ignored parameters: duration, tween, logScreenshot
 # move() and moveRel() are equivalent.
 # Use the relative flag to do a raw win32 api relative movement call
@@ -1632,11 +2116,13 @@ def moveTo(
 def moveRel(
     xOffset: int | None = None,
     yOffset: int | None = None,
-    duration: None = None,
+    duration: float = 0.0,
     tween: None = None,
     logScreenshot: bool = False,
     _pause: bool = True,
-    relative: bool = False
+    relative: bool = False,
+    *,
+    virtual: bool = False
 ) -> None:
     '''
     Move the mouse a relative amount.
@@ -1644,14 +2130,30 @@ def moveRel(
     `relative` parameter decides how the movement is executed.
     -> `False`: New postion is calculated and absolute movement is used.
     -> `True`: Uses API relative movement (can be inconsistent)
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    NOTE: `logScreenshot`, `tween`, `duration` are currently unsupported.
     '''
+    # TODO: bounding box check for valid position
     if xOffset is None:
         xOffset = 0
     if yOffset is None:
         yOffset = 0
     if not relative:
         x, y = _position()
-        moveTo(x + xOffset, y + yOffset)
+        moveTo(
+            x + xOffset,
+            y + yOffset,
+            duration=duration,
+            tween=tween,
+            logScreenshot=logScreenshot,
+            _pause=False,  # don't add an additional pause
+            relative=False,
+            virtual=virtual
+        )
     else:
         # When using MOUSEEVENTF_MOVE for relative movement the results may be
         # inconsistent. "Relative mouse motion is subject to the effects of the
@@ -1666,20 +2168,494 @@ def moveRel(
             dwFlags=_MOUSEEVENTF_MOVE
         )
         _send_input(input_struct)
+# ------------------------------------------------------------------------------
 
 
+# ----- move alias -------------------------------------------------------------
 move = moveRel
+# ------------------------------------------------------------------------------
 
 
-# Missing feature: drag functions
+# ----- dragTo -----------------------------------------------------------------
+@_genericPyDirectInputChecks
+def dragTo(
+    x: int | None = None,
+    y: int | None = None,
+    duration: float = 0.0,
+    tween: None = None,
+    button: str = MOUSE_PRIMARY,
+    logScreenshot: bool = False,
+    _pause: bool = True,
+    mouseDownUp: bool = True,
+    *,
+    relative: bool = False,
+    virtual: bool = False,
+) -> None:
+    '''
+    TODO
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    NOTE: `logScreenshot`, `tween`, `duration` are currently unsupported.
+    '''
+    # TODO: bounding box check for valid position
+    if not relative:
+        if mouseDownUp:
+            mouseDown(button=button, _pause=False, virtual=virtual)
+        moveTo(
+            x,
+            y,
+            duration=duration,
+            tween=tween,
+            _pause=False,  # don't add an additional pause
+            relative=False,
+            virtual=virtual
+        )
+        if mouseDownUp:
+            mouseUp(button=button, _pause=False, virtual=virtual)
+    else:
+        currentX, currentY = _position()
+        if x is None or y is None:
+            raise ValueError("x and y have to be integers if relative is set!")
+        dragRel(
+            x - currentX,
+            y - currentY,
+            duration=duration,
+            tween=tween,
+            logScreenshot=logScreenshot,
+            _pause=False,  # Don't add an additional pause
+            relative=True,
+            virtual=virtual
+        )
+# ------------------------------------------------------------------------------
+
+
+# ----- dragRel ----------------------------------------------------------------
+@_genericPyDirectInputChecks
+def dragRel(
+    xOffset: int | None = None,
+    yOffset: int | None = None,
+    duration: float = 0.0,
+    tween: None = None,
+    button: str = MOUSE_PRIMARY,
+    logScreenshot: bool = False,
+    _pause: bool = True,
+    mouseDownUp: bool = True,
+    *,
+    relative: bool = False,
+    virtual: bool = False,
+) -> None:
+    '''
+    TODO
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    NOTE: `logScreenshot`, `tween`, `duration` are currently unsupported.
+    '''
+    # TODO: bounding box check for valid position
+    if xOffset is None:
+        xOffset = 0
+    if yOffset is None:
+        yOffset = 0
+    if not relative:
+        x, y = _position()
+        dragTo(
+            x + xOffset,
+            y + yOffset,
+            duration=duration,
+            tween=tween,
+            button=button,
+            logScreenshot=logScreenshot,
+            _pause=False,  # don't add an additional pause
+            relative=False,
+            virtual=virtual
+        )
+    else:
+        if mouseDownUp:
+            mouseDown(button=button, _pause=False, virtual=virtual)
+        moveRel(
+            xOffset,
+            yOffset,
+            duration=duration,
+            tween=tween,
+            _pause=False,  # don't add an additional pause
+            relative=False,
+            virtual=virtual
+        )
+        if mouseDownUp:
+            mouseUp(button=button, _pause=False, virtual=virtual)
+# ------------------------------------------------------------------------------
+
+
+# ----- drag alias -------------------------------------------------------------
+drag = dragRel
+# ------------------------------------------------------------------------------
 
 
 # ==============================================================================
 # ===== Keyboard Functions =====================================================
 # ==============================================================================
 
+# ----- isValidKey -------------------------------------------------------------
+def isValidKey(key: str) -> bool:
+    '''
+    Returns true if key name `key` can be translated into a valid scan code.
+    '''
+    return key in KEYBOARD_MAPPING
+# ------------------------------------------------------------------------------
+
+
+# ===== scancode functions =====================================================
+
+# ----- scancode_keyDown -------------------------------------------------------
+@_genericPyDirectInputChecks
+def scancode_keyDown(
+    scancode: int,
+    logScreenshot: None = None,
+    _pause: bool = True,
+    *,
+    auto_shift: bool = False
+) -> bool:
+    '''
+    Press down key corresponding to `scancode`.
+
+    The actually pressed key will depend on your system keyboard layout.
+    Limits the available character set but should provide the best
+    compatibility.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    `auto_shift` is used internally by higher level functions to automatically
+    press the shift key before supported scancodes (indicitated by a special
+    bit outside the regular scancode range, while it technically can be used,
+    it's not intended for public access).
+
+    NOTE: `logScreenshot` is currently unsupported.
+    '''
+    keybdFlags: int = _KEYEVENTF_SCANCODE
+    input_structs: list[_INPUT] = []
+
+    # Init event tracking
+    insertedEvents = 0
+    expectedEvents = 0
+
+    if auto_shift and scancode & _OFFSET_SHIFTKEY:
+        input_structs += [_create_keyboard_input(
+            wScan=_SHIFT_SCANCODE,
+            dwFlags=keybdFlags
+        )]
+        expectedEvents += 1
+
+    if scancode & _OFFSET_KEYSEQUENCE:
+        code_sequence = _SCANCODE_SEQUENCES.get(scancode, [])
+        if not code_sequence:
+            return False
+        for code in code_sequence:
+            extendedFlag = _KEYEVENTF_EXTENDEDKEY if code >= 0xE000 else 0
+            input_structs += [_create_keyboard_input(
+                wScan=code & 0xFFFF,
+                dwFlags=keybdFlags | extendedFlag
+            )]
+            expectedEvents += 1
+    else:
+        extendedFlag = _KEYEVENTF_EXTENDEDKEY if scancode >= 0xE000 else 0
+        input_structs += [_create_keyboard_input(
+            wScan=scancode & 0xFFFF,
+            dwFlags=keybdFlags | extendedFlag
+        )]
+        expectedEvents += 1
+
+    insertedEvents += _send_input(input_structs)
+
+    # SendInput returns the number of event successfully inserted into
+    # input stream
+    # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput#return-value
+    return insertedEvents == expectedEvents
+# ------------------------------------------------------------------------------
+
+
+# ----- scancode_keyUp ---------------------------------------------------------
+@_genericPyDirectInputChecks
+def scancode_keyUp(
+    scancode: int,
+    logScreenshot: None = None,
+    _pause: bool = True,
+    *,
+    auto_shift: bool = False
+) -> bool:
+    '''
+    Release key `key`.
+
+    The actually pressed key will depend on your system keyboard layout.
+    Limits the available character set but should provide the best
+    compatibility.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    `auto_shift` is used internally by higher level functions to automatically
+    press the shift key before supported scancodes (indicitated by a special
+    bit outside the regular scancode range, while it technically can be used,
+    it's not intended for public access).
+
+    NOTE: `logScreenshot` is currently unsupported.
+    '''
+    keybdFlags: int = _KEYEVENTF_SCANCODE | _KEYEVENTF_KEYUP
+    input_structs: list[_INPUT] = []
+
+    # Init event tracking
+    insertedEvents = 0
+    expectedEvents = 0
+
+    if auto_shift and scancode & _OFFSET_SHIFTKEY:
+        input_structs += [_create_keyboard_input(
+            wScan=_SHIFT_SCANCODE,
+            dwFlags=keybdFlags
+        )]
+        expectedEvents += 1
+
+    if scancode & _OFFSET_KEYSEQUENCE:
+        code_sequence = _SCANCODE_SEQUENCES.get(scancode, [])
+        if not code_sequence:
+            return False
+        for code in code_sequence:
+            extendedFlag = _KEYEVENTF_EXTENDEDKEY if code >= 0xE000 else 0
+            input_structs += [_create_keyboard_input(
+                wScan=code & 0xFFFF,
+                dwFlags=keybdFlags | extendedFlag
+            )]
+            expectedEvents += 1
+    else:
+        extendedFlag = _KEYEVENTF_EXTENDEDKEY if scancode >= 0xE000 else 0
+        input_structs += [_create_keyboard_input(
+            wScan=scancode & 0xFFFF,
+            dwFlags=keybdFlags | extendedFlag
+        )]
+        expectedEvents += 1
+    insertedEvents += _send_input(input_structs)
+
+    return insertedEvents == expectedEvents
+# ------------------------------------------------------------------------------
+
+
+# ----- _helper_scancode_press -------------------------------------------------
+def _helper_scancode_press(
+    scancode: int,
+    duration: float = 0.0,
+    _pause: bool = True,
+    auto_shift: bool = False
+) -> bool:
+    '''
+    Press `scancode`, wait for `duration` seconds, release `scancode`.
+
+    Return `True` if complete press was successful.
+    '''
+    _failSafeCheck()
+    downed = scancode_keyDown(scancode, _pause=_pause, auto_shift=auto_shift)
+    time.sleep(duration)
+    upped = scancode_keyUp(scancode, _pause=_pause, auto_shift=auto_shift)
+    # Count key press as complete if key was "downed" and "upped"
+    # successfully
+    return bool(downed and upped)
+# ------------------------------------------------------------------------------
+
+
+# ----- scancode_press ---------------------------------------------------------
 # Ignored parameters: logScreenshot
-# Missing feature: auto shift for special characters (ie. '!', '@', '#'...)
+@_genericPyDirectInputChecks
+def scancode_press(
+    scancodes: int | Sequence[int],
+    presses: int = 1,
+    interval: float = 0.0,
+    logScreenshot: None = None,
+    _pause: bool = True,
+    *,
+    auto_shift: bool = False,
+    delay: float = 0.0,
+    duration: float = 0.0
+) -> bool:
+    '''
+    Press the sequence of `keys` for `presses` amount of times.
+
+    The actually pressed key will depend on your system keyboard layout.
+    Limits the available character set but should provide the best
+    compatibility.
+
+    Explanation of time parameters (seconds as floating point numbers):
+
+    - `interval` is the time spent waiting between sequences. If `keys` is a
+    str instance or single element list, then `interval` will be ignored.
+    - `delay` is the time from one complete key (press+release) to the next one
+    in the same sequence. If there is only a single key in a sequence, then
+    `delay` will be ignored.
+    - `duration` is the time spent on holding every key before releasing it
+    again.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+    Be aware, that the global pause defined by the PAUSE `constant` only applies
+    after every call to this function, not inbetween (no extra pause between
+    pressing and releasing key, use the `duration` argument instead)!
+
+    `auto_shift` is used internally by higher level functions to automatically
+    press the shift key before supported scancodes (indicitated by a special
+    bit outside the regular scancode range, while it technically can be used,
+    it's not intended for public access).
+
+    NOTE: `logScreenshot` is currently unsupported.
+    '''
+    if isinstance(scancodes, int):
+        scancodes = [scancodes]  # If keys is 'enter', convert it to ['enter'].
+    interval = float(interval)
+
+    # We need to press x keys y times, which comes out to x*y presses in total
+    expectedPresses = presses * len(scancodes)
+    completedPresses = 0
+
+    apply_interval: bool = False
+    for _ in range(presses):
+        if apply_interval:  # Don't delay first press
+            time.sleep(interval)
+
+        for c in scancodes:
+            apply_delay: bool = False
+            if apply_delay:  # Don't delay first press
+                time.sleep(delay)
+
+            completedPresses += _helper_scancode_press(
+                c,
+                duration,
+                _pause=False,
+                auto_shift=auto_shift
+            )
+
+            apply_delay = True
+        apply_interval = True
+
+    return completedPresses == expectedPresses
+# ------------------------------------------------------------------------------
+
+
+# ----- scancode_hold ----------------------------------------------------------
+@contextmanager
+@_genericPyDirectInputChecks
+def scancode_hold(
+    scancodes: int | Sequence[int],
+    logScreenshot: None = None,
+    _pause: bool = True,
+    *,
+    auto_shift: bool = False,
+    raise_on_failure: bool = False,
+) -> Generator[None, None, None]:
+    '''
+    Hold the sequence of keys corresponding to `scancodes` as long as the
+    context manager is in scope (press upon entry, release upon exit).
+
+    Keys will be released in reverse order (LIFO), but still practically
+    instantenous.
+
+    The actually pressed key will depend on your system keyboard layout.
+    Limits the available character set but should provide the best
+    compatibility.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+    Be aware, that the global pause defined by the PAUSE `constant` only applies
+    after every call to this function, not inbetween (no pause between press
+    and releasing key)!
+
+    `auto_shift` is used internally by higher level functions to automatically
+    press the shift key before supported scancodes (indicitated by a special
+    bit outside the regular scancode range, while it technically can be used,
+    it's not intended for public access).
+
+    If `raise_on_failure` is True, then `PriorInputFailedException` will be
+    raised if not all keyboard inputs could be executed successfully.
+
+    NOTE: `logScreenshot` is currently unsupported.
+    '''
+    if isinstance(scancodes, int):
+        scancodes = [scancodes]  # make single element into iterable
+
+    expectedPresses = len(scancodes)
+    downed = upped = 0
+
+    for c in scancodes:
+        _failSafeCheck()
+        downed += scancode_keyDown(c, _pause=False, auto_shift=auto_shift)
+    try:
+        yield
+    finally:
+        for c in reversed(scancodes):
+            _failSafeCheck()
+            upped += scancode_keyUp(c, _pause=False, auto_shift=auto_shift)
+        if raise_on_failure and not (expectedPresses == downed == upped):
+            raise PriorInputFailedException
+# ------------------------------------------------------------------------------
+
+
+# ----- scancode_hotkey --------------------------------------------------------
+@_genericPyDirectInputChecks
+def scancode_hotkey(
+    *args: int,
+    interval: float = 0.0,
+    wait: float = 0.0,
+    logScreenshot: None = None,
+    _pause: bool = True,
+    auto_shift: bool = True,
+) -> None:
+    '''
+    Press down buttons in order they are specified as arguments,
+    releasing them in reverse order, e.g. 0x1D, 0x2E will first press
+    Control, then C and release C before releasing Control.
+
+    Use keyword-only argument `interval` to specify a delay between single
+    keys when pressing and releasing and `wait` for delay between last press
+    and first release.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+    Be aware, that the global pause defined by the PAUSE `constant` only applies
+    after every call to this function, not inbetween (no pause between press
+    and releasing key)!
+
+    `auto_shift` is used internally by higher level functions to automatically
+    press the shift key before supported scancodes (indicitated by a special
+    bit outside the regular scancode range, while it technically can be used,
+    it's not intended for public access).
+
+    NOTE: `logScreenshot` is currently unsupported.
+    '''
+    delay_key: bool = False
+    for code in args:
+        if delay_key:
+            time.sleep(interval)  # sleep between iterations
+        delay_key = True
+        scancode_keyDown(code, _pause=False, auto_shift=auto_shift)
+    time.sleep(wait)
+    delay_key = False
+    for code in reversed(args):
+        if delay_key:
+            time.sleep(interval)  # sleep between iterations
+        delay_key = True
+        scancode_keyUp(code, _pause=False, auto_shift=auto_shift)
+# ------------------------------------------------------------------------------
+
+
+# ===== keyname functions ======================================================
+
+# ----- keyDown ----------------------------------------------------------------
+# Ignored parameters: logScreenshot
 @_genericPyDirectInputChecks
 def keyDown(
     key: str,
@@ -1689,50 +2665,37 @@ def keyDown(
     auto_shift: bool = False
 ) -> bool:
     '''
-    Press down `key`.
+    Press down key corresponding to key name `key`.
 
     `key` will be interpreted as a keyboard key (US QWERTY).
     The actually pressed key will depend on your system keyboard layout.
     Limits the available character set but should provide the best
     compatibility.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    If `auto_shift` is True, then "shifted" characters like upper case letters
+    and the symbols on the number row automatically insert a Shift scancode
+    into the input sequence.
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
-    if key not in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
+    hexKeyCode = KEYBOARD_MAPPING.get(key)
+    if hexKeyCode is None:
         return False
-
-    keybdFlags: int = _KEYEVENTF_SCANCODE
-    hexKeyCode = KEYBOARD_MAPPING[key]
-    input_structs: list[_INPUT] = []
-
-    # Init event tracking
-    insertedEvents = 0
-    expectedEvents = 0
-
-    if auto_shift and hexKeyCode & _OFFSET_SHIFTKEY:
-        input_structs += [_create_keyboard_input(
-            wScan=KEYBOARD_MAPPING['shift'],
-            dwFlags=keybdFlags
-        )]
-        expectedEvents += 1
-
-    if hexKeyCode & _OFFSET_EXTENDEDKEY:
-        keybdFlags |= _KEYEVENTF_EXTENDEDKEY
-
-    input_structs += [_create_keyboard_input(
-        wScan=hexKeyCode & 0xFFFF,
-        dwFlags=keybdFlags
-    )]
-    expectedEvents += 1
-    insertedEvents += _send_input(input_structs)
-
-    # SendInput returns the number of event successfully inserted into
-    # input stream
-    # https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput#return-value
-    return insertedEvents == expectedEvents
+    return scancode_keyDown(
+        hexKeyCode,
+        logScreenshot,
+        _pause,
+        auto_shift=auto_shift
+    )
+# ------------------------------------------------------------------------------
 
 
+# ----- keyUp ------------------------------------------------------------------
 # Ignored parameters: logScreenshot
-# Missing feature: auto shift for special characters (ie. '!', '@', '#'...)
-@_genericPyDirectInputChecks
 def keyUp(
     key: str,
     logScreenshot: None = None,
@@ -1741,47 +2704,40 @@ def keyUp(
     auto_shift: bool = False
 ) -> bool:
     '''
-    Release key `key`.
+    Lift up key corresponding to key name `key`.
 
     `key` will be interpreted as a keyboard key (US QWERTY).
-    The actually pressed key will depend on your system keyboard layout.
+    The actually lifted key will depend on your system keyboard layout.
     Limits the available character set but should provide the best
     compatibility.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    If `auto_shift` is True, then "shifted" characters like upper case letters
+    and the symbols on the number row automatically insert a Shift scancode
+    into the input sequence.
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
-    if key not in KEYBOARD_MAPPING or KEYBOARD_MAPPING[key] is None:
+    hexKeyCode = KEYBOARD_MAPPING.get(key)
+    if hexKeyCode is None:
         return False
-
-    keybdFlags: int = _KEYEVENTF_SCANCODE | _KEYEVENTF_KEYUP
-    hexKeyCode = KEYBOARD_MAPPING[key]
-    input_structs: list[_INPUT] = []
-
-    # Init event tracking
-    insertedEvents = 0
-    expectedEvents = 0
-
-    if auto_shift and hexKeyCode & _OFFSET_SHIFTKEY:
-        input_structs += [_create_keyboard_input(
-            wScan=KEYBOARD_MAPPING['shift'],
-            dwFlags=keybdFlags
-        )]
-        expectedEvents += 1
-
-    if hexKeyCode & _OFFSET_EXTENDEDKEY:
-        keybdFlags |= _KEYEVENTF_EXTENDEDKEY
-
-    input_structs += [_create_keyboard_input(
-        wScan=hexKeyCode & 0xFFFF,
-        dwFlags=keybdFlags
-    )]
-    expectedEvents += 1
-    insertedEvents += _send_input(input_structs)
-
-    return insertedEvents == expectedEvents
+    return scancode_keyUp(
+        hexKeyCode,
+        logScreenshot,
+        _pause,
+        auto_shift=auto_shift
+    )
+# ------------------------------------------------------------------------------
 
 
-def _helper_press_key(
+# ----- _helper_press ----------------------------------------------------------
+def _helper_press(
     key: str,
     duration: float = 0.0,
+    _pause: bool = True,
     auto_shift: bool = False
 ) -> bool:
     '''
@@ -1790,16 +2746,17 @@ def _helper_press_key(
     Return `True` if complete press was successful.
     '''
     _failSafeCheck()
-    downed = keyDown(key, auto_shift=auto_shift)
+    downed = keyDown(key, _pause=_pause, auto_shift=auto_shift)
     time.sleep(duration)
-    upped = keyUp(key, auto_shift=auto_shift)
+    upped = keyUp(key, _pause=_pause, auto_shift=auto_shift)
     # Count key press as complete if key was "downed" and "upped"
     # successfully
     return bool(downed and upped)
+# ------------------------------------------------------------------------------
 
 
+# ----- press ------------------------------------------------------------------
 # Ignored parameters: logScreenshot
-# nearly identical to PyAutoGUI's implementation
 @_genericPyDirectInputChecks
 def press(
     keys: str | Sequence[str],
@@ -1830,8 +2787,18 @@ def press(
     - `duration` is the time spent on holding every key before releasing it
     again.
 
-    Be aware, that the global pause defined by the PAUSE `constant` only applies
-    after every call to this function, not inbetween!
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+    Be aware, that the global pause defined by the `PAUSE` var only applies
+    after every call to this function, not inbetween (no extra pause between
+    pressing and releasing key, use the `duration` argument instead)!
+
+    If `auto_shift` is True, then "shifted" characters like upper case letters
+    and the symbols on the number row automatically insert a Shift scancode
+    into the input sequence.
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
     if isinstance(keys, str):
         keys = [keys]  # If keys is 'enter', convert it to ['enter'].
@@ -1852,9 +2819,10 @@ def press(
             if apply_delay:  # Don't delay first press
                 time.sleep(delay)
 
-            completedPresses += _helper_press_key(
+            completedPresses += _helper_press(
                 k,
                 duration,
+                _pause=False,
                 auto_shift=auto_shift
             )
 
@@ -1862,23 +2830,192 @@ def press(
         apply_interval = True
 
     return completedPresses == expectedPresses
+# ------------------------------------------------------------------------------
 
 
-def _helper_unicode_press_char(char: str, duration: float = 0.0) -> bool:
+# ----- hold -------------------------------------------------------------------
+@contextmanager
+@_genericPyDirectInputChecks
+def hold(
+    keys: str | Sequence[str],
+    logScreenshot: None = None,
+    _pause: bool = True,
+    *,
+    auto_shift: bool = False,
+    raise_on_failure: bool = False,
+) -> Generator[None, None, None]:
     '''
-    Press `key`, wait for `duration` seconds, release `key`.
+    Hold the sequence of keys corresponding to key names in `keys` as long as
+    the context manager is in scope (press upon entry, release upon exit).
 
-    Return `True` if complete press was successful.
+    Keys will be released in reverse order (LIFO), but still practically
+    instantenous.
+
+    `key` will be interpreted as a keyboard key (US QWERTY).
+    The actually pressed key will depend on your system keyboard layout.
+    Limits the available character set but should provide the best
+    compatibility.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+    Be aware, that the global pause defined by the PAUSE `constant` only applies
+    after every call to this function, not inbetween (no pause between press
+    and releasing key)!
+
+    `auto_shift` is used internally by higher level functions to automatically
+    press the shift key before supported scancodes (indicitated by a special
+    bit outside the regular scancode range, while it technically can be used,
+    it's not intended for public access).
+
+    If `raise_on_failure` is True, then `PriorInputFailedException` will be
+    raised if not all keyboard inputs could be executed successfully.
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
-    _failSafeCheck()
-    downed = unicode_charDown(char)
-    time.sleep(duration)
-    upped = unicode_charUp(char)
-    # Count key press as complete if key was "downed" and "upped"
-    # successfully
-    return bool(downed and upped)
+    if isinstance(keys, str):
+        keys = [keys]  # make single element into iterable
+    keys = [_normalize_key(key, auto_shift=auto_shift) for key in keys]
+
+    expectedPresses = len(keys)
+    downed = upped = 0
+
+    for k in keys:
+        _failSafeCheck()
+        downed += keyDown(k, auto_shift=auto_shift)
+    try:
+        yield
+    finally:
+        for k in reversed(keys):
+            _failSafeCheck()
+            upped += keyUp(k, auto_shift=auto_shift)
+        if raise_on_failure and not (expectedPresses == downed == upped):
+            raise PriorInputFailedException
+# ------------------------------------------------------------------------------
 
 
+# ----- typewrite --------------------------------------------------------------
+# Ignored parameters: logScreenshot
+@_genericPyDirectInputChecks
+def typewrite(
+    message: str,
+    interval: float = 0.0,
+    logScreenshot: None = None,
+    _pause: bool = True,
+    *,
+    auto_shift: bool = False,
+    delay: float = 0.0,
+    duration: float = 0.0
+) -> None:
+    '''
+    Break down `message` into a single character key sequence and press each
+    key one by one.
+
+    `message` will be interpreted as sequence of keyboard keys (US QWERTY).
+    The actually pressed keys will depend on your system keyboard layout.
+    Limits the available character set but should provide the best
+    compatibility.
+
+    Explanation of time parameters (seconds as floating point numbers):
+
+    - `interval` is the time spent waiting between sequences. If `message` is a
+    single character string, then `interval` will be ignored.
+    - `delay` is the time from one complete key (press+release) to the next one
+    in the same sequence. If there is only a single key in a sequence, then
+    `delay` will be ignored.
+    - `duration` is the time spent on holding every key before releasing it
+    again.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+    Be aware, that the global pause defined by the PAUSE `constant` only applies
+    after every call to this function, not inbetween (no pause between press
+    and releasing key)!
+
+    `auto_shift` is used internally by higher level functions to automatically
+    press the shift key before supported scancodes (indicitated by a special
+    bit outside the regular scancode range, while it technically can be used,
+    it's not intended for public access).
+
+    NOTE: `logScreenshot` is currently unsupported.
+    '''
+    interval = float(interval)
+    apply_interval: bool = False
+    for key in message:
+        if apply_interval:  # Don't delay first press
+            time.sleep(interval)
+        _failSafeCheck()
+        press(
+            key,
+            _pause=False,
+            auto_shift=auto_shift,
+            delay=delay,
+            duration=duration
+        )
+        apply_interval = True
+# ------------------------------------------------------------------------------
+
+
+# ----- typewrite alias --------------------------------------------------------
+write = typewrite
+# ------------------------------------------------------------------------------
+
+
+# ----- hotkey -----------------------------------------------------------------
+# Originally implemented by
+# https://github.com/learncodebygaming/pydirectinput/pull/30
+@_genericPyDirectInputChecks
+def hotkey(
+    *args: str,
+    interval: float = 0.0,
+    wait: float = 0.0,
+    logScreenshot: None = None,
+    _pause: bool = True,
+    auto_shift: bool = True,
+) -> None:
+    '''
+    Press down buttons in order they are specified as arguments,
+    releasing them in reverse order, e.g. 'ctrl', 'c' will first press
+    Control, then C and release C before releasing Control.
+
+    Use keyword-only argument `interval` to specify a delay between single
+    keys when pressing and releasing and `wait` for delay between last press
+    and first release.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+    Be aware, that the global pause defined by the PAUSE `constant` only applies
+    after every call to this function, not inbetween (no pause between press
+    and releasing key)!
+
+    `auto_shift` is used internally by higher level functions to automatically
+    press the shift key before supported scancodes (indicitated by a special
+    bit outside the regular scancode range, while it technically can be used,
+    it's not intended for public access).
+
+    NOTE: `logScreenshot` is currently unsupported.
+    '''
+    delay_key: bool = False
+    for key in args:
+        if delay_key:
+            time.sleep(interval)  # sleep between iterations
+        delay_key = True
+        keyDown(key, _pause=False, auto_shift=auto_shift)
+    time.sleep(wait)
+    delay_key = False
+    for key in reversed(args):
+        if delay_key:
+            time.sleep(interval)  # sleep between iterations
+        delay_key = True
+        keyUp(key, _pause=False, auto_shift=auto_shift)
+# ------------------------------------------------------------------------------
+
+
+# ===== unicode functions ======================================================
+
+# ----- unicode_charDown -------------------------------------------------------
 @_genericPyDirectInputChecks
 def unicode_charDown(
     char: str,
@@ -1892,11 +3029,15 @@ def unicode_charDown(
     `char` will be interpreted as a string of Unicode characters
     (independet from keyboard layout). Supports complete Unicode character set
     but may not be compatible with every application.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
     utf16surrogates = char.encode('utf-16be')
     codes = unpack(f'>{len(utf16surrogates)//2}H', utf16surrogates)
-    print(codes)
-    print([hex(c) for c in codes])
 
     keybdFlags: int = _KEYEVENTF_UNICODE
 
@@ -1913,8 +3054,10 @@ def unicode_charDown(
     insertedEvents = _send_input(input_structs)
 
     return insertedEvents == expectedEvents
+# ------------------------------------------------------------------------------
 
 
+# ----- unicode_charUp ---------------------------------------------------------
 @_genericPyDirectInputChecks
 def unicode_charUp(
     char: str,
@@ -1928,11 +3071,15 @@ def unicode_charUp(
     `char` will be interpreted as a string of Unicode characters
     (independet from keyboard layout). Supports complete Unicode character set
     but may not be compatible with every application.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
     utf16surrogates = char.encode('utf-16be')
     codes = unpack(f'>{len(utf16surrogates)//2}H', utf16surrogates)
-    print(codes)
-    print([hex(c) for c in codes])
 
     keybdFlags: int = _KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP
 
@@ -1949,8 +3096,30 @@ def unicode_charUp(
     insertedEvents = _send_input(input_structs)
 
     return insertedEvents == expectedEvents
+# ------------------------------------------------------------------------------
 
 
+# ----- _helper_unicode_press_char ---------------------------------------------
+def _helper_unicode_press_char(
+    char: str,
+    duration: float = 0.0,
+    _pause: bool = True,
+) -> bool:
+    '''
+    Press `key`, wait for `duration` seconds, release `key`.
+
+    Return `True` if complete press was successful.
+    '''
+    _failSafeCheck()
+    downed = unicode_charDown(char, _pause=_pause)
+    time.sleep(duration)
+    upped = unicode_charUp(char, _pause=_pause)
+    # Count key press as complete if key was "downed" and "upped"
+    # successfully
+    return bool(downed and upped)
+
+
+# ----- unicode_press ----------------------------------------------------------
 @_genericPyDirectInputChecks
 def unicode_press(
     chars: str | Sequence[str],
@@ -1979,8 +3148,14 @@ def unicode_press(
     - `duration` is the time spent on holding every char before releasing it
     again.
 
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
     Be aware, that the global pause defined by the PAUSE `constant` only applies
-    after every call to this function, not inbetween!
+    after every call to this function, not inbetween (no extra pause between
+    pressing and releasing key, use the `duration` argument instead)!
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
     if isinstance(chars, str):
         chars = [chars]
@@ -2000,50 +3175,74 @@ def unicode_press(
             if apply_delay:  # Don't delay first press
                 time.sleep(delay)
 
-            completedPresses += _helper_unicode_press_char(c, duration)
+            completedPresses += _helper_unicode_press_char(
+                c,
+                duration,
+                _pause=False,
+            )
 
             apply_delay = True
         apply_interval = True
 
     return completedPresses == expectedPresses
+# ------------------------------------------------------------------------------
 
 
-# Ignored parameters: logScreenshot
-# nearly identical to PyAutoGUI's implementation
+# ----- unicode_hold -----------------------------------------------------------
+@contextmanager
 @_genericPyDirectInputChecks
-def typewrite(
-    message: str,
-    interval: float = 0.0,
+def unicode_hold(
+    chars: str | Sequence[str],
     logScreenshot: None = None,
     _pause: bool = True,
     *,
-    auto_shift: bool = False,
-    delay: float = 0.0,
-    duration: float = 0.0
-) -> None:
+    raise_on_failure: bool = False,
+) -> Generator[None, None, None]:
     '''
-    Break down `message` into keys and press them one by one.
+    Hold the sequence of "keys" corresponding to unicode characters in `chars`
+    as long as the context manager is in scope (press upon entry,
+    release upon exit).
 
-    `message` will be interpreted as sequence of keyboard keys (US QWERTY).
-    The actually pressed keys will depend on your system keyboard layout.
-    Limits the available character set but should provide the best
-    compatibility.
+    `chars` will be interpreted as a sequence of Unicode characters
+    (independet from keyboard layout). Supports complete Unicode character set
+    but may not be compatible with every application.
+
+    Keys will be released in reverse order (LIFO), but still practically
+    instantenous.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+    Be aware, that the global pause defined by the PAUSE `constant` only applies
+    after every call to this function, not inbetween (no pause between press
+    and releasing key)!
+
+    If `raise_on_failure` is True, then `PriorInputFailedException` will be
+    raised if not all keyboard inputs could be executed successfully.
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
-    interval = float(interval)
-    for char in message:
-        if len(char) > 1:
-            char = char.lower()
-        press(
-            char,
-            _pause=False,
-            auto_shift=auto_shift,
-            delay=delay,
-            duration=duration
-        )
-        time.sleep(interval)
+    if isinstance(chars, str):
+        chars = [chars]  # make single element into iterable
+
+    expectedPresses = len(chars)
+    downed = upped = 0
+
+    for c in chars:
         _failSafeCheck()
+        downed += unicode_charDown(c)
+    try:
+        yield
+    finally:
+        for c in reversed(chars):
+            _failSafeCheck()
+            upped += unicode_charUp(c)
+        if raise_on_failure and not (expectedPresses == downed == upped):
+            raise PriorInputFailedException
+# ------------------------------------------------------------------------------
 
 
+# ----- unicode_typewrite ------------------------------------------------------
 @_genericPyDirectInputChecks
 def unicode_typewrite(
     message: str,
@@ -2060,48 +3259,85 @@ def unicode_typewrite(
     `message` will be interpreted as a sequence of Unicode characters
     (independet from keyboard layout). Supports complete Unicode character set
     but may not be compatible with every application.
+
+    Explanation of time parameters (seconds as floating point numbers):
+
+    - `interval` is the time spent waiting between sequences. If `message` is a
+    single character string, then `interval` will be ignored.
+    - `delay` is the time from one complete key (press+release) to the next one
+    in the same sequence. If there is only a single key in a sequence, then
+    `delay` will be ignored.
+    - `duration` is the time spent on holding every key before releasing it
+    again.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+    Be aware, that the global pause defined by the PAUSE `constant` only applies
+    after every call to this function, not inbetween (no pause between press
+    and releasing key)!
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
-    interval = float(interval)
+    delay_key: bool = False
     for char in message:
-        if len(char) > 1:
-            char = char.lower()
+        if delay_key:
+            time.sleep(interval)  # sleep between iterations
+        delay_key = True
         unicode_press(char, _pause=False, delay=delay, duration=duration)
         time.sleep(interval)
         _failSafeCheck()
+# ------------------------------------------------------------------------------
 
 
-write = typewrite
+# ----- unicode_typewrite alias ------------------------------------------------
 unicode_write = unicode_typewrite
+# ------------------------------------------------------------------------------
 
 
-# Originally implemented by
-# https://github.com/learncodebygaming/pydirectinput/pull/30
-# nearly identical to PyAutoGUI's implementation
+# ----- unicode_hotkey ---------------------------------------------------------
 @_genericPyDirectInputChecks
-def hotKey(*args: str, interval: float = 0.0, wait: float = 0.0) -> None:
+def unicode_hotkey(
+    *args: str,
+    interval: float = 0.0,
+    wait: float = 0.0,
+    logScreenshot: None = None,
+    _pause: bool = True,
+) -> None:
     '''
     Press down buttons in order they are specified as arguments,
-    releasing them in reverse order, e.g. 'ctrl', 'c' will first press
-    Control, then C and release C before releasing Control.
+    releasing them in reverse order.
+
+    This function makes little sense for Unicode characters and mainly exists
+    for parity with the other, lower-level hotkey functions!
+
+    See `unicode_press()` for an alternative function that presses keys in
+    series instead.
 
     Use keyword-only argument `interval` to specify a delay between single
     keys when pressing and releasing and `wait` for delay between last press
     and first release.
+
+    If `_pause` is True (default), then an automatic sleep will be performed
+    after the function finshes executing. The duration is set by the global
+    variable `PAUSE`.
+    Be aware, that the global pause defined by the PAUSE `constant` only applies
+    after every call to this function, not inbetween (no pause between press
+    and releasing key)!
+
+    NOTE: `logScreenshot` is currently unsupported.
     '''
     delay_key: bool = False
-    for c in args:
+    for char in args:
         if delay_key:
-            time.sleep(interval)
+            time.sleep(interval)  # sleep between iterations
         delay_key = True
-        if len(c) > 1:
-            c = c.lower()
-        keyDown(c)
+        unicode_charDown(char, _pause=False)
     time.sleep(wait)
     delay_key = False
-    for c in reversed(args):
+    for char in reversed(args):
         if delay_key:
-            time.sleep(interval)
+            time.sleep(interval)  # sleep between iterations
         delay_key = True
-        if len(c) > 1:
-            c = c.lower()
-        keyUp(c)
+        unicode_charUp(char, _pause=False)
+# ------------------------------------------------------------------------------
