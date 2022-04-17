@@ -6,16 +6,18 @@ mouse and keyboard inputs.
 # native imports
 import functools
 import inspect
+from threading import Lock
 import time
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from ctypes import (
     POINTER, Array, Structure, Union, WinDLL, c_bool, c_int, c_long,
-    c_short, c_uint, c_ulong, c_ushort, pointer, sizeof, windll,
+    c_short, c_uint, c_ulong, c_ushort, c_void_p, pointer, sizeof, windll,
 )
+from math import ceil, floor, log10
 from struct import unpack
 from typing import (
-    TYPE_CHECKING, Any, Callable, Final, Literal,
+    TYPE_CHECKING, Any, Callable, ClassVar, Final, Literal,
     ParamSpec, Protocol, TypeAlias, TypeVar,
 )
 from typing import cast as hint_cast  # prevent confusion with ctypes.cast
@@ -33,6 +35,14 @@ else:
             return POINTER(item)
     _POINTER_TYPE = __pointer
 # ------------------------------------------------------------------------------
+
+# ==============================================================================
+# ===== Internal time source ===================================================
+# ==============================================================================
+_time: Callable[[], float] = time.perf_counter
+_time_ns: Callable[[], int] = time.perf_counter_ns
+_sleep: Callable[[float], None] = time.sleep
+
 
 # ==============================================================================
 # ===== External "constants" ===================================================
@@ -53,6 +63,14 @@ PAUSE: float = 0.01  # 1/100 second pause by default
 '''
 Default pause interval in seconds if _pause argument isn't set to False.
 1/100 second pause by default.
+'''
+MINIMUM_SLEEP_IDEAL: float = 1e-6
+'''
+Extremely small timer interval greater than 0 that still generates
+'''
+MINIMUM_SLEEP_ACTUAL: float = 0.002
+'''
+Actual time spent on sleeping with MINIMUM_SLEEP_IDEAL, rounded up for safety.
 '''
 # ------------------------------------------------------------------------------
 
@@ -76,6 +94,65 @@ MOUSE_BUTTON5: Final[str] = "mouse5"
 '''Name of second additional mouse button (usually a side button)'''
 MOUSE_X2: Final[str] = "x2"
 '''Name of second additional mouse button (usually a side button)'''
+# ------------------------------------------------------------------------------
+
+
+# ==============================================================================
+# ===== External setup functions ===============================================
+# ==============================================================================
+
+# ----- automatically measure minimum sleep time -------------------------------
+def calibrate_real_sleep_minimum(
+    runs: int = 10,
+    *,
+    verbose: bool = False
+) -> None:
+    '''
+    Measure your system's minimum sleep duration and calibrate
+    `MINIMUM_SLEEP_ACTUAL` accordingly.
+
+    Will try to sleep for `MINIMUM_SLEEP_IDEAL` seconds and measure actual time
+    difference. Repeat for `runs` amount of times, take the highest measurement
+    and round it up to the next higher value in the same order of magnitude.
+
+    Example: [0.001874, 0.001721, 0.001806] would round up to 0.002
+    '''
+
+    def round_up_same_magnitude(x: float) -> float:
+        mag: float = 10**floor(log10(x))
+        return ceil(x / mag) * mag
+
+    def stopwatch(duration: float) -> float:
+        t1: int = _time_ns()
+        _sleep(duration)
+        t2: int = _time_ns()
+        return (t2 - t1) * 1e-9
+
+    if verbose:
+        print("Calibrating real sleep minimum...")
+
+    measurements = [
+        stopwatch(MINIMUM_SLEEP_IDEAL) for _ in range(runs)
+    ]
+    if verbose:
+        print(f"Real measurements: {measurements}")
+
+    new_sleep_minimum = round_up_same_magnitude(max(measurements))
+    if verbose:
+        print(
+            "Rounding max measurement to next higher value in same order of "
+            f"magnitude: {new_sleep_minimum}"
+        )
+
+    global MINIMUM_SLEEP_ACTUAL
+    if verbose:
+        print(
+            f"Changing MINIMUM_SLEEP_ACTUAL from {MINIMUM_SLEEP_ACTUAL} to "
+            f"{new_sleep_minimum}"
+        )
+    MINIMUM_SLEEP_ACTUAL = (  # pyright: ignore[reportConstantRedefinition]
+        new_sleep_minimum
+    )
 # ------------------------------------------------------------------------------
 
 
@@ -337,6 +414,41 @@ _SM_CYVIRTUALSCREEN: Literal[79] = 79
 The height of the virtual screen, in pixels. The virtual screen is the bounding
 rectangle of all display monitors. The SM_YVIRTUALSCREEN metric is the
 coordinates for the top of the virtual screen.
+'''
+# ------------------------------------------------------------------------------
+
+
+# ----- SystemParametersInfoW uiAction arguments -------------------------------
+_SPI_GETMOUSE: Literal[0x0003] = 0x0003  # c_uint
+'''
+Retrieves the two mouse threshold values and the mouse acceleration. The
+pvParam parameter must point to an array of three integers that receives these
+values. See mouse_event[1] for further information.
+
+https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mouse_event
+'''
+_SPI_SETMOUSE: Literal[0x0004] = 0x0004  # c_uint
+'''
+Sets the two mouse threshold values and the mouse acceleration. The pvParam
+parameter must point to an array of three integers that specifies these values.
+See mouse_event[1] for further information.
+
+https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mouse_event
+'''
+_SPI_GETMOUSESPEED: Literal[0x0070] = 0x0070  # c_uint
+'''
+Retrieves the current mouse speed. The mouse speed determines how far the
+pointer will move based on the distance the mouse moves. The pvParam parameter
+must point to an integer that receives a value which ranges between 1 (slowest)
+and 20 (fastest). A value of 10 is the default. The value can be set by an
+end-user using the mouse control panel application or by an application using
+SPI_SETMOUSESPEED.
+'''
+_SPI_SETMOUSESPEED: Literal[0x0071] = 0x0071  # c_uint
+'''
+Sets the current mouse speed. The pvParam parameter is an integer between
+1 (slowest) and 20 (fastest). A value of 10 is the default. This value is
+typically set using the mouse control panel application.
 '''
 # ------------------------------------------------------------------------------
 
@@ -1086,6 +1198,141 @@ def _get_cursor_pos() -> _POINT:
 # ------------------------------------------------------------------------------
 
 
+# ----- SystemParametersInfoW Declaration -----------------------------------------------
+class _SystemParametersInfoW_Type(Protocol):
+    argtypes: tuple[type[c_uint], type[c_uint], type[c_void_p], type[c_uint]]
+    restype: type[c_bool]
+
+    def __call__(
+        self,
+        uiAction: c_uint | int,
+        uiParam: c_uint | int,
+        pvParam: c_void_p | Any,
+        fWinIni: c_uint | int,
+    ) -> bool:  # c_bool
+        ...
+
+
+_SystemParametersInfoW = hint_cast(
+    _SystemParametersInfoW_Type,
+    _user32.SystemParametersInfoW
+)
+'''
+----- SystemParametersInfoW function (winuser.h) -----
+
+Retrieves or sets the value of one of the system-wide parameters. This function
+can also update the user profile while setting a parameter.
+
+https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow
+
+'''
+_SystemParametersInfoW.argtypes = c_uint, c_uint, c_void_p, c_uint
+_SystemParametersInfoW.restype = c_bool
+
+
+# ----- Get system settings for mouse movement ---------------------------------
+def _get_mouse_parameters() -> tuple[int, int, int]:
+    '''
+    Query system parameters for user's mouse settings.
+
+    Abstraction layer over SystemParametersInfoW (winuser.h)
+
+    https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow
+
+    Information on _SPI_GETMOUSE
+
+    Retrieves the two mouse threshold values and the mouse acceleration. The
+    pvParam parameter must point to an array of three integers that receives these
+    values. See mouse_event[1] for further information.
+
+    https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mouse_event
+    '''
+    pvParam: Array[c_uint] = (c_uint * 3)()
+    _SystemParametersInfoW(_SPI_GETMOUSE, 0, pointer(pvParam), 0)
+    return (pvParam[0], pvParam[1], pvParam[2])
+# ------------------------------------------------------------------------------
+
+
+# ----- Set system settings for mouse movement ---------------------------------
+def _set_mouse_parameters(
+    threshold1: int,
+    threshold2: int,
+    enhanced_pointer_precision: int
+) -> bool:
+    '''
+    Set system parameters for user's mouse settings.
+
+    Abstraction layer over SystemParametersInfoW (winuser.h)
+
+    https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow
+
+    Information on _SPI_SETMOUSE
+
+    Sets the two mouse threshold values and the mouse acceleration. The pvParam
+    parameter must point to an array of three integers that specifies these values.
+    See mouse_event[1] for further information.
+
+    https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mouse_event
+    '''
+    pvParam: Final[Array[c_uint]] = (c_uint * 3)(
+        threshold1,
+        threshold2,
+        enhanced_pointer_precision
+    )
+    # leave last parameter as 0 to make changes non-permanent and restore
+    # themselves upon reboot if something goes wrong and the wrong setting
+    # was overwritten.
+    return _SystemParametersInfoW(_SPI_SETMOUSE, 0, pointer(pvParam), 0)
+# ------------------------------------------------------------------------------
+
+
+# ----- Get system settings for mouse speed ------------------------------------
+def _get_mouse_speed() -> int:
+    '''
+    Query system parameters for user's mouse settings.
+
+    Abstraction layer over SystemParametersInfoW (winuser.h)
+
+    https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow
+
+    Information on SPI_GETMOUSESPEED
+
+    Retrieves the current mouse speed. The mouse speed determines how far the
+    pointer will move based on the distance the mouse moves. The pvParam
+    parameter must point to an integer that receives a value which ranges
+    between 1 (slowest) and 20 (fastest). A value of 10 is the default. The
+    value can be set by an end-user using the mouse control panel application
+    or by an application using SPI_SETMOUSESPEED.
+    '''
+    pvParam: Array[c_uint] = (c_uint * 1)()
+    _SystemParametersInfoW(_SPI_GETMOUSESPEED, 0, pointer(pvParam), 0)
+    return pvParam[0]
+# ------------------------------------------------------------------------------
+
+
+# ----- Set system settings for mouse movement ---------------------------------
+def _set_mouse_speed(mouse_speed: int) -> bool:
+    '''
+    Set system parameters for user's mouse settings.
+
+    Abstraction layer over SystemParametersInfoW (winuser.h)
+
+    https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow
+
+    Information on SPI_SETMOUSESPEED
+
+    Sets the current mouse speed. The pvParam parameter is an integer between
+    1 (slowest) and 20 (fastest). A value of 10 is the default. This value is
+    typically set using the mouse control panel application.
+    '''
+    pvParam: Final[Array[c_uint]] = (c_uint * 1)(mouse_speed)
+    # leave last parameter as 0 to make changes non-permanent and restore
+    # themselves upon reboot if something goes wrong and the wrong setting
+    # was overwritten.
+    return _SystemParametersInfoW(_SPI_SETMOUSESPEED, 0, pointer(pvParam), 0)
+# ------------------------------------------------------------------------------
+
+
 # ==============================================================================
 # ===== Keyboard Scan Code Mappings ============================================
 # ==============================================================================
@@ -1433,7 +1680,7 @@ def _handlePause(_pause: Any) -> None:
     Pause the default amount of time if `_pause=True` in function arguments.
     '''
     if _pause:
-        time.sleep(PAUSE)
+        _sleep(PAUSE)
 # ------------------------------------------------------------------------------
 
 
@@ -1471,6 +1718,32 @@ def _genericPyDirectInputChecks(
 # ===== Helper Functions =======================================================
 # ==============================================================================
 
+# ------------------------------------------------------------------------------
+def _calc_normalized_screen_coord(
+    pixel_coord: int,
+    display_total: int
+) -> int:
+    '''
+    Convert a pixel coordinate to normalized Windows screen coordinate value
+    (range 0 - 65535) by taking the average of two neighboring pixels.
+    '''
+    # formula from this strange (probably machine translated) article
+    # https://sourceexample.com/make-a-statement-in-the-source-code-of-the-coordinate-conversion-of-sendinput-(windows-api)-that-is-overflowing-in-the-streets-23df9/
+    # win_coord = (x * 65536 + width - 1) // width
+    # This alone is not enough, but we can do better by taking the average of
+    # this pixel plus the next pixel.
+    # In my testing this perfectly reflected the real pixel that SendInput moves
+    # to, down to the pixels that Windows themselves can't resolve.
+    this_pixel: Final[int] = (
+        (pixel_coord * 65536 + display_total - 1) // display_total
+    )
+    next_pixel: Final[int] = (
+        ((pixel_coord + 1) * 65536 + display_total - 1) // display_total
+    )
+    return (this_pixel + next_pixel) // 2
+# ------------------------------------------------------------------------------
+
+
 # ----- translate pixels to normalized Windows coordinates ---------------------
 def _to_windows_coordinates(
     x: int = 0,
@@ -1482,14 +1755,25 @@ def _to_windows_coordinates(
     Convert x,y coordinates to normalized windows coordinates and return as
     tuple (x, y).
     '''
-    size: Sequence[int] = _virtual_size() if virtual else _size()
-    display_width: int = size[0]
-    display_height: int = size[1]
+    display_width: int
+    display_height: int
+    offset_left: int
+    offset_top: int
 
-    # the +1 here prevents exactly mouse movements from sometimes ending up
-    # off by 1 pixel
-    windows_x: int = (x * 65536) // display_width + 1
-    windows_y: int = (y * 65536) // display_height + 1
+    if virtual:
+        display_width, display_height, offset_left, offset_top = _virtual_size()
+    else:
+        display_width, display_height = _size()
+        offset_left, offset_top = 0, 0
+
+    windows_x: int = _calc_normalized_screen_coord(
+        x - offset_left,
+        display_width
+    )
+    windows_y: int = _calc_normalized_screen_coord(
+        y - offset_top,
+        display_height
+    )
 
     return windows_x, windows_y
 # ------------------------------------------------------------------------------
@@ -1590,6 +1874,161 @@ def _normalize_key(
 # ------------------------------------------------------------------------------
 
 
+# ----- calculate step target for a single steps -------------------------------
+def _add_one_step(
+    current: int,
+    target: int,
+    remaining_steps: int
+) -> int:
+    '''
+    Calculate a target distance in a lazy way, providing self-healing to
+    disturbed movement.
+    '''
+    if remaining_steps <= 1:
+        return target
+    step_factor: float = (remaining_steps - 1) / remaining_steps
+    return round(target - ((target - current) * step_factor))
+# ------------------------------------------------------------------------------
+
+
+# ------------------------------------------------------------------------------
+# ----- Enhanced Pointer Precision storage singleton ---------------------------
+class __MouseSpeedSettings:
+    '''
+    Allows controlled storage of Windows Enhanced Pointer Precision and mouse
+    speed settings.
+    '''
+    __context_manager_epp: ClassVar[int | None] = None
+    __context_manager_speed: ClassVar[int | None] = None
+    __context_manager_count: ClassVar[int] = 0
+    __context_manager_lock: ClassVar[Lock] = Lock()
+    __manual_store_epp: ClassVar[int | None] = None
+    __manual_store_speed: ClassVar[int | None] = None
+    __manual_lock: ClassVar[Lock] = Lock()
+    # --------------------------------------------------------------------------
+
+    @classmethod
+    def get_manual_mouse_settings(cls) -> tuple[int | None, int | None]:
+        with cls.__manual_lock:
+            return (
+                cls.__manual_store_epp,
+                cls.__manual_store_speed
+            )
+    # --------------------------------------------------------------------------
+
+    @classmethod
+    def set_manual_mouse_settings(
+        cls,
+        enhanced_pointer_precision_enabled: int,
+        mouse_speed: int
+    ) -> None:
+        with cls.__manual_lock:
+            cls.__manual_store_epp = enhanced_pointer_precision_enabled
+            cls.__manual_store_speed = mouse_speed
+    # --------------------------------------------------------------------------
+
+    @classmethod
+    def get_ctxtmgr_mouse_settings(cls) -> tuple[int | None, int | None]:
+        with cls.__context_manager_lock:
+            cls.__context_manager_count -= 1
+            if cls.__context_manager_count > 0:
+                # Don't retrieve stored value until last
+                return (None, None)
+            epp_enabled: int | None = cls.__context_manager_epp
+            mouse_speed: int | None = cls.__context_manager_speed
+            cls.__context_manager_epp = None
+            cls.__context_manager_speed = None
+            return (epp_enabled, mouse_speed)
+    # --------------------------------------------------------------------------
+
+    @classmethod
+    def set_ctxtmgr_mouse_settings(
+        cls,
+        enhanced_pointer_precision_enabled: int,
+        mouse_speed: int
+    ) -> None:
+        with cls.__context_manager_lock:
+            cls.__context_manager_count += 1
+            if cls.__context_manager_count > 1:
+                # Don't allow changing the stored value if another value is
+                # already stored
+                return
+            cls.__context_manager_epp = enhanced_pointer_precision_enabled
+            cls.__context_manager_speed = mouse_speed
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+
+
+# ----- Temporarily disable Enhanced Pointer Precision -------------------------
+@contextmanager
+def without_mouse_acceleration() -> Generator[None, None, None]:
+    '''
+    Context manager that allows temporarily disabling Windows Enhanced Pointer
+    Precision on enter and restoring the previous setting on exit.
+    '''
+    th1: int
+    th2: int
+    precision: int | None
+    # store mouse parameters (thresholds, enhanced pointer precision)
+    th1, th2, precision = _get_mouse_parameters()
+    speed: int | None = _get_mouse_speed()
+    assert(isinstance(precision, int))
+    assert(isinstance(speed, int))
+    __MouseSpeedSettings.set_ctxtmgr_mouse_settings(precision, speed)
+    try:
+        # modify mouse parameters
+        if precision != 0:
+            _set_mouse_parameters(th1, th2, 0)
+        yield
+    finally:
+        # restore mouse parameters
+        precision, speed = __MouseSpeedSettings.get_ctxtmgr_mouse_settings()
+        if precision is not None:
+            _set_mouse_parameters(th1, th2, precision)
+        if speed is not None:
+            _set_mouse_speed(speed)
+# ------------------------------------------------------------------------------
+
+
+# ----- manually store current enhanced pointer precision setting --------------
+def store_mouse_acceleration_settings() -> None:
+    '''
+    Manually save the current Windows Enhanced Pointer Precision setting so that
+    it can be restored later with
+    `restore_mouse_acceleration_settings()`.
+    '''
+    precision: int
+    _, _, precision = _get_mouse_parameters()
+    speed: int = _get_mouse_speed()
+    __MouseSpeedSettings.set_manual_mouse_settings(precision, speed)
+# ------------------------------------------------------------------------------
+
+
+# ----- manually restore current enhanced pointer precision setting ------------
+def restore_mouse_acceleration_settings() -> None:
+    '''
+    Manually restore the current Windows Enhanced Pointer Precision setting to
+    what it was beforehand when it was saved with
+    `store_mouse_acceleration_settings()`.
+    '''
+    precision: int | None
+    speed: int | None
+    precision, speed = __MouseSpeedSettings.get_manual_mouse_settings()
+    if precision is None or speed is None:
+        raise ValueError(
+            "Can't restore Enhanced Pointer Precision setting! "
+            "Setting was not saved beforehand!"
+        )
+    th1: int
+    th2: int
+    th1, th2, _ = _get_mouse_parameters()
+    if precision is not None:
+        _set_mouse_parameters(th1, th2, precision)
+    if speed is not None:
+        _set_mouse_speed(speed)
+# ------------------------------------------------------------------------------
+
+
 # ==============================================================================
 # ===== Main Mouse Functions ===================================================
 # ==============================================================================
@@ -1607,6 +2046,8 @@ def mouseDown(
     *,
     relative: bool = False,
     virtual: bool = False,
+    attempt_pixel_perfect: bool = False,
+    disable_mouse_acceleration: bool = False,
 ) -> None:
     '''
     Press down mouse button `button`.
@@ -1623,10 +2064,13 @@ def mouseDown(
     after the function finshes executing. The duration is set by the global
     variable `PAUSE`.
 
-    `duration`, `tween`, `relative` and `virtual` are only relevant if x or y
-    are given. See `moveTo()` for further information.
+    `duration`, `tween`, `relative`, `virtual`, `attempt_pixel_perfect`,
+    `disable_mouse_acceleration` are only relevant if x or y are given.
+    See `moveTo()` for further information.
 
     Raises `ValueError` if `button` is not a valid mouse button name.
+
+    ----------------------------------------------------------------------------
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
@@ -1640,7 +2084,9 @@ def mouseDown(
             logScreenshot=logScreenshot,
             _pause=False,  # don't add an additional pause
             relative=relative,
-            virtual=virtual
+            virtual=virtual,
+            attempt_pixel_perfect=attempt_pixel_perfect,
+            disable_mouse_acceleration=disable_mouse_acceleration,
         )
 
     event_value: int | None = None
@@ -1675,6 +2121,8 @@ def mouseUp(
     *,
     relative: bool = False,
     virtual: bool = False,
+    attempt_pixel_perfect: bool = False,
+    disable_mouse_acceleration: bool = False,
 ) -> None:
     '''
     Lift up mouse button `button`.
@@ -1691,10 +2139,13 @@ def mouseUp(
     after the function finshes executing. The duration is set by the global
     variable `PAUSE`.
 
-    `duration`, `tween`, `relative` and `virtual` are only relevant if x or y
-    are given. See `moveTo()` for further information.
+    `duration`, `tween`, `relative`, `virtual`, `attempt_pixel_perfect`,
+    `disable_mouse_acceleration` are only relevant if x or y are given.
+    See `moveTo()` for further information.
 
     Raises `ValueError` if `button` is not a valid mouse button name.
+
+    ----------------------------------------------------------------------------
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
@@ -1708,7 +2159,9 @@ def mouseUp(
             logScreenshot=logScreenshot,
             _pause=False,  # don't add an additional pause
             relative=relative,
-            virtual=virtual
+            virtual=virtual,
+            attempt_pixel_perfect=attempt_pixel_perfect,
+            disable_mouse_acceleration=disable_mouse_acceleration,
         )
 
     event_value: int | None = None
@@ -1745,6 +2198,8 @@ def click(
     *,
     relative: bool = False,
     virtual: bool = False,
+    attempt_pixel_perfect: bool = False,
+    disable_mouse_acceleration: bool = False,
 ) -> None:
     '''
     Click mouse button `button` (combining press down and lift up).
@@ -1766,10 +2221,13 @@ def click(
     after the function finshes executing. The duration is set by the global
     variable `PAUSE`.
 
-    `duration`, `tween`, `relative` and `virtual` are only relevant if x or y
-    are given. See `moveTo()` for further information.
+    `duration`, `tween`, `relative`, `virtual`, `attempt_pixel_perfect`,
+    `disable_mouse_acceleration` are only relevant if x or y are given.
+    See `moveTo()` for further information.
 
     Raises `ValueError` if `button` is not a valid mouse button name.
+
+    ----------------------------------------------------------------------------
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
@@ -1783,7 +2241,9 @@ def click(
             logScreenshot=logScreenshot,
             _pause=False,  # don't add an additional pause
             relative=relative,
-            virtual=virtual
+            virtual=virtual,
+            attempt_pixel_perfect=attempt_pixel_perfect,
+            disable_mouse_acceleration=disable_mouse_acceleration,
         )
 
     event_value: int | None = None
@@ -1801,7 +2261,7 @@ def click(
     apply_interval: bool = False
     for _ in range(clicks):
         if apply_interval:  # Don't delay first press
-            time.sleep(interval)
+            _sleep(interval)
         apply_interval = True
 
         _send_input(_create_mouse_input(
@@ -1823,6 +2283,8 @@ def leftClick(
     *,
     relative: bool = False,
     virtual: bool = False,
+    attempt_pixel_perfect: bool = False,
+    disable_mouse_acceleration: bool = False,
 ) -> None:
     '''
     Click Left Mouse button.
@@ -1840,7 +2302,9 @@ def leftClick(
         logScreenshot=logScreenshot,
         _pause=_pause,  # Keep _pause since this function has no input checks
         relative=relative,
-        virtual=virtual
+        virtual=virtual,
+        attempt_pixel_perfect=attempt_pixel_perfect,
+        disable_mouse_acceleration=disable_mouse_acceleration,
     )
 # ------------------------------------------------------------------------------
 
@@ -1857,6 +2321,8 @@ def rightClick(
     *,
     relative: bool = False,
     virtual: bool = False,
+    attempt_pixel_perfect: bool = False,
+    disable_mouse_acceleration: bool = False,
 ) -> None:
     '''
     Click Right Mouse button.
@@ -1874,7 +2340,9 @@ def rightClick(
         logScreenshot=logScreenshot,
         _pause=_pause,  # Keep _pause since this function has no input checks
         relative=relative,
-        virtual=virtual
+        virtual=virtual,
+        attempt_pixel_perfect=attempt_pixel_perfect,
+        disable_mouse_acceleration=disable_mouse_acceleration,
     )
 # ------------------------------------------------------------------------------
 
@@ -1891,6 +2359,8 @@ def middleClick(
     *,
     relative: bool = False,
     virtual: bool = False,
+    attempt_pixel_perfect: bool = False,
+    disable_mouse_acceleration: bool = False,
 ) -> None:
     '''
     Click Middle Mouse button.
@@ -1908,7 +2378,9 @@ def middleClick(
         logScreenshot=logScreenshot,
         _pause=_pause,  # Keep _pause since this function has no input checks
         relative=relative,
-        virtual=virtual
+        virtual=virtual,
+        attempt_pixel_perfect=attempt_pixel_perfect,
+        disable_mouse_acceleration=disable_mouse_acceleration,
     )
 # ------------------------------------------------------------------------------
 
@@ -1926,6 +2398,8 @@ def doubleClick(
     *,
     relative: bool = False,
     virtual: bool = False,
+    attempt_pixel_perfect: bool = False,
+    disable_mouse_acceleration: bool = False,
 ) -> None:
     '''
     Double click `button`.
@@ -1943,7 +2417,9 @@ def doubleClick(
         logScreenshot=logScreenshot,
         _pause=_pause,  # Keep _pause since this function has no input checks
         relative=relative,
-        virtual=virtual
+        virtual=virtual,
+        attempt_pixel_perfect=attempt_pixel_perfect,
+        disable_mouse_acceleration=disable_mouse_acceleration,
     )
 # ------------------------------------------------------------------------------
 
@@ -1961,6 +2437,8 @@ def tripleClick(
     *,
     relative: bool = False,
     virtual: bool = False,
+    attempt_pixel_perfect: bool = False,
+    disable_mouse_acceleration: bool = False,
 ) -> None:
     '''
     Triple click `button`.
@@ -1978,7 +2456,9 @@ def tripleClick(
         logScreenshot=logScreenshot,
         _pause=_pause,  # Keep _pause since this function has no input checks
         relative=relative,
-        virtual=virtual
+        virtual=virtual,
+        attempt_pixel_perfect=attempt_pixel_perfect,
+        disable_mouse_acceleration=disable_mouse_acceleration,
     )
 # ------------------------------------------------------------------------------
 
@@ -2012,6 +2492,8 @@ def scroll(
     after the function finshes executing. The duration is set by the global
     variable `PAUSE`.
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
     direction: Literal[-1, 1]
@@ -2024,7 +2506,7 @@ def scroll(
     apply_interval: bool = False
     for _ in range(clicks):
         if apply_interval:
-            time.sleep(interval)
+            _sleep(interval)
         apply_interval = True
 
         _send_input(_create_mouse_input(
@@ -2061,6 +2543,8 @@ def hscroll(
     after the function finshes executing. The duration is set by the global
     variable `PAUSE`.
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
     direction: Literal[-1, 1]
@@ -2073,7 +2557,7 @@ def hscroll(
     apply_interval: bool = False
     for _ in range(clicks):
         if apply_interval:
-            time.sleep(interval)
+            _sleep(interval)
         apply_interval = True
 
         _send_input(_create_mouse_input(
@@ -2089,13 +2573,6 @@ vscroll = scroll
 
 
 # ----- moveTo -----------------------------------------------------------------
-# Ignored parameters: duration, tween, logScreenshot
-# PyAutoGUI uses ctypes.windll.user32.SetCursorPos(x, y) for this,
-# which might still work fine in DirectInput environments.
-# Use the relative flag to do a raw win32 api relative movement call
-# (no MOUSEEVENTF_ABSOLUTE flag), which may be more appropriate for some
-# applications. Note that this may produce inexact results depending on
-# mouse movement speed.
 @_genericPyDirectInputChecks
 def moveTo(
     x: int | None = None,
@@ -2107,57 +2584,136 @@ def moveTo(
     relative: bool = False,
     *,
     virtual: bool = False,
+    attempt_pixel_perfect: bool = False,
+    disable_mouse_acceleration: bool = False,
 ) -> None:
     '''
     Move the mouse to an absolute(*) postion indicated by the arguments of
-    `x` and `y`.
+    `x` and `y`. The coordinates 0,0 represent the top left pixel of the
+    primary monitor.
 
-    (*) If `relative is True`: use `moveRel(..., relative=True) to move.`
+    If `duration` is floating point number greater than 0, then this function
+    will automatically split the movement into microsteps instead of moving
+    straight to the target position.
+
+    (*) If `relative` is set: Use absolute mouse movement to move the mouse
+    cursor to the current mouse position offset by arguments `x` and `y`.
 
     If `_pause` is True (default), then an automatic sleep will be performed
     after the function finshes executing. The duration is set by the global
     variable `PAUSE`.
 
-    NOTE: `logScreenshot`, `tween`, `duration` are currently unsupported.
+    Setting `virtual` to True (default: False) changes the way internal APIs
+    handle coordinates and is intended for multi monitor systems. It should be
+    pretty much unncessary even for multi monitor systems, since all the
+    necessary internal calculations beyond the border of the primay monitor
+    work without it.
+
+    The way that Windows calculates the target pixel coordinates internally
+    unfortunately leads to inaccuracies and unreachable pixels, especially
+    if the `virtual` option is used.
+
+    If you need the target position to be pixel perfect, you can try setting
+    `attempt_pixel_perfect` to True, which will use tiny relative movements
+    to correct the unreachable position.
+
+    Relative movement is influenced by mouse speed and Windows Enhanced Pointer
+    Precision, which can be temporarily disabled by setting
+    `disable_mouse_acceleration`.
+
+    ----------------------------------------------------------------------------
+    Careful! Disabling mouse acceleration settings is MAYBE thread-safe,
+    NOT multiprocessing-safe, and DEFINITELY NOT independent processses safe!
+
+    If you you start a relative movement while another is already in progress
+    than the second movement could overwrite the first setting and disable
+    Enhanced Pointer Precision and change mouse speed.
+    There are some measures in place to try to mitigate that risk, such as an
+    internal counter that only allows storing and restoring the acceleration
+    settings as long as no other movement is currently in progress.
+    Additionally, the acceleration settings can be manually saved and
+    restored with `store_mouse_acceleration_settings()` and
+    `restore_mouse_acceleration_settings()`. For your convinnience, the
+    store function is automatically called during import to save your current
+    setting. You can then call the restore function at any time.
+
+    If all fails, the setting is not written permanently to your Windows
+    settings, so it should restore itself upon reboot.
+
+    Bottom line: Don't use the `disable_mouse_acceleration` argument if you use
+    this library in multiple threads / processes / programs at the same time!
+
+    ----------------------------------------------------------------------------
+
+    NOTE: `logScreenshot`, `tween` are currently unsupported.
     '''
     # TODO: bounding box check for valid position
-    if not relative:
+    final_x: int
+    final_y: int
+    current_x: int = 0
+    current_y: int = 0
+    if relative:
+        current_x, current_y = _position()
+        final_x = current_x + (0 if x is None else x)
+        final_y = current_y + (0 if y is None else y)
+    else:
         # if only x or y is provided, will keep the current position for the
         # other axis
-        x, y = _to_windows_coordinates(*_position(x, y), virtual=virtual)
-        dwFlags: int = (_MOUSEEVENTF_MOVE | _MOUSEEVENTF_ABSOLUTE)
-        if virtual:
-            dwFlags |= _MOUSEEVENTF_VIRTUALDESK
+        final_x, final_y = _position(x, y)
+
+    dwFlags: int = (_MOUSEEVENTF_MOVE | _MOUSEEVENTF_ABSOLUTE)
+    if virtual:
+        dwFlags |= _MOUSEEVENTF_VIRTUALDESK
+
+    final_time: Final[float] = _time() + duration
+    keep_looping: bool = True
+
+    apply_duration: bool = False
+    while keep_looping:
+        if apply_duration:
+            _sleep(MINIMUM_SLEEP_IDEAL)  # sleep between iterations
+        apply_duration = True
+
+        time_segments: int = min(
+            int((final_time - _time()) / MINIMUM_SLEEP_ACTUAL),
+            max(abs(final_x - current_x), abs(final_y - current_y))
+        )
+        if time_segments <= 1:
+            keep_looping = False
+
+        current_x, current_y = _position()
+        x = _add_one_step(current_x, final_x, time_segments)
+        y = _add_one_step(current_y, final_y, time_segments)
+
+        if x == current_x and y == current_y:
+            # no change in movement for current segment ->try again
+            continue
+
+        x, y = _to_windows_coordinates(x, y, virtual=virtual)
         _send_input(_create_mouse_input(
             dx=x, dy=y,
             dwFlags=dwFlags
         ))
 
-    else:
-        currentX, currentY = _position()
-        if x is None or y is None:
-            raise ValueError(
-                "x and/or y have to be integers if relative is set!"
-            )
+    # After-care: Did Windows move the cursor correctly?
+    # If not, attempt to fix off-by-one errors.
+    if attempt_pixel_perfect:
+        current_x, current_y = _position()
+        if current_x == final_x and current_y == final_y:
+            return  # We are already pixel perfect, great!
         moveRel(
-            x - currentX,
-            y - currentY,
-            duration=duration,
-            tween=tween,
-            logScreenshot=logScreenshot,
-            _pause=False,  # Don't add an additional pause
+            xOffset=final_x - current_x,
+            yOffset=final_y - current_y,
+            duration=0.0,
+            _pause=False,  # don't add an additional pause
             relative=True,
-            virtual=virtual
+            virtual=virtual,
+            disable_mouse_acceleration=disable_mouse_acceleration
         )
 # ------------------------------------------------------------------------------
 
 
 # ----- moveRel ----------------------------------------------------------------
-# Ignored parameters: duration, tween, logScreenshot
-# move() and moveRel() are equivalent.
-# Use the relative flag to do a raw win32 api relative movement call
-# (no MOUSEEVENTF_ABSOLUTE flag), which may be more appropriate for some
-# applications.
 @_genericPyDirectInputChecks
 def moveRel(
     xOffset: int | None = None,
@@ -2168,20 +2724,62 @@ def moveRel(
     _pause: bool = True,
     relative: bool = False,
     *,
-    virtual: bool = False
+    virtual: bool = False,
+    disable_mouse_acceleration: bool = False
 ) -> None:
     '''
-    Move the mouse a relative amount.
+    Move the mouse a relative amount determined by `xOffset` and `yOffset`.
+
+    If `duration` is floating point number greater than 0, then this function
+    will automatically split the movement into microsteps instead of moving the
+    complete distance instantly.
 
     `relative` parameter decides how the movement is executed.
     -> `False`: New postion is calculated and absolute movement is used.
     -> `True`: Uses API relative movement (can be inconsistent)
 
+    The inconsistency issue can be solved by disabling Enhanced Pointer
+    Precision and set Mouse speed to 10 in Windows mouse settings. Since users
+    may not want to permanently change their input settings just for this
+    library, the `disable_mouse_acceleration` argument can be used to
+    temporarily disable Enhanced Pointer Precision and fix mouse speed at 10
+    and restore it after the mouse movement.
+
     If `_pause` is True (default), then an automatic sleep will be performed
     after the function finshes executing. The duration is set by the global
     variable `PAUSE`.
 
-    NOTE: `logScreenshot`, `tween`, `duration` are currently unsupported.
+    Setting `virtual` to True (default: False) changes the way internal APIs
+    handle coordinates and is intended for multi monitor systems. It should be
+    pretty much unncessary even for multi monitor systems, since all the
+    necessary internal calculations beyond the border of the primay monitor
+    work without it.
+
+    ----------------------------------------------------------------------------
+    Careful! Disabling mouse acceleration settings is MAYBE thread-safe,
+    NOT multiprocessing-safe, and DEFINITELY NOT independent processses safe!
+
+    If you you start a relative movement while another is already in progress
+    than the second movement could overwrite the first setting and disable
+    Enhanced Pointer Precision and change mouse speed.
+    There are some measures in place to try to mitigate that risk, such as an
+    internal counter that only allows storing and restoring the acceleration
+    settings as long as no other movement is currently in progress.
+    Additionally, the acceleration settings can be manually saved and
+    restored with `store_mouse_acceleration_settings()` and
+    `restore_mouse_acceleration_settings()`. For your convinnience, the
+    store function is automatically called during import to save your current
+    setting. You can then call the restore function at any time.
+
+    If all fails, the setting is not written permanently to your Windows
+    settings, so it should restore itself upon reboot.
+
+    Bottom line: Don't use the `disable_mouse_acceleration` argument if you use
+    this library in multiple threads / processes / programs at the same time!
+
+    ----------------------------------------------------------------------------
+
+    NOTE: `logScreenshot`, `tween` are currently unsupported.
     '''
     # TODO: bounding box check for valid position
     if xOffset is None:
@@ -2189,36 +2787,75 @@ def moveRel(
     if yOffset is None:
         yOffset = 0
     if not relative:
-        x: int
-        y: int
-        x, y = _position()
         moveTo(
-            x + xOffset,
-            y + yOffset,
+            xOffset,
+            yOffset,
             duration=duration,
             tween=tween,
             logScreenshot=logScreenshot,
             _pause=False,  # don't add an additional pause
-            relative=False,
+            relative=True,
             virtual=virtual
         )
     else:
-        # When using MOUSEEVENTF_MOVE for relative movement the results may be
-        # inconsistent. "Relative mouse motion is subject to the effects of the
-        # mouse speed and the two-mouse threshold values. A user sets these
-        # three values with the Pointer Speed slider of the Control Panel's
-        # Mouse Properties sheet. You can obtain and set these values using the
-        # SystemParametersInfo function."
-        # https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-mouseinput
-        # https://stackoverflow.com/questions/50601200/pyhon-directinput-mouse-relative-moving-act-not-as-expected
-        _send_input(_create_mouse_input(
-            dx=xOffset, dy=yOffset,
-            dwFlags=_MOUSEEVENTF_MOVE
-        ))
+        current_x: int = 0
+        current_y: int = 0
+        final_time: Final[float] = _time() + duration
+        keep_looping: bool = True
+
+        apply_duration: bool = False
+        while keep_looping:
+            if apply_duration:
+                _sleep(MINIMUM_SLEEP_IDEAL)  # sleep between iterations
+            apply_duration = True
+
+            time_segments: int = min(
+                int((final_time - _time()) / MINIMUM_SLEEP_ACTUAL),
+                max(xOffset - current_x, yOffset - current_y)
+            )
+            if time_segments <= 1:
+                keep_looping = False
+
+            x = _add_one_step(current_x, xOffset, time_segments) - current_x
+            y = _add_one_step(current_y, yOffset, time_segments) - current_y
+
+            if x == 0 and y == 0:
+                # no change in movement for current segment ->try again
+                continue
+
+            input_struct: _INPUT = _create_mouse_input(
+                dx=x, dy=y,
+                dwFlags=_MOUSEEVENTF_MOVE
+            )
+            current_x += x
+            current_y += y
+
+            # When using MOUSEEVENTF_MOVE for relative movement the results may
+            # be inconsistent. "Relative mouse motion is subject to the effects
+            # of the mouse speed and the two-mouse threshold values. A user sets
+            # these three values with the Pointer Speed slider of the Control
+            # Panel's Mouse Properties sheet. You can obtain and set these
+            # values using the SystemParametersInfo function."
+            # https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-mouseinput
+            # https://stackoverflow.com/questions/50601200/pyhon-directinput-mouse-relative-moving-act-not-as-expected
+            # We can solve this issue by just disabling Enhanced Pointer
+            # Precision and forcing Mouse speed to neutral 10.
+            # Since that is a user setting that users may want to have enabled,
+            # use a optional keyword-only argument and a state-restoring context
+            # manager to give users the choice if they want this library messing
+            # around in their Windows settings.
+            if disable_mouse_acceleration:
+                # Use a context manager to temporarily disable enhanced pointer
+                # precision
+                with without_mouse_acceleration():
+                    _send_input(input_struct)
+            else:
+                _send_input(input_struct)
 # ------------------------------------------------------------------------------
 
 
 # ----- move alias -------------------------------------------------------------
+# move() and moveRel() are equivalent.
 move = moveRel
 # ------------------------------------------------------------------------------
 
@@ -2230,54 +2867,55 @@ def dragTo(
     y: int | None = None,
     duration: float = 0.0,
     tween: None = None,
-    button: str = MOUSE_PRIMARY,
+    button: str | None = None,
     logScreenshot: bool = False,
     _pause: bool = True,
     mouseDownUp: bool = True,
     *,
     relative: bool = False,
     virtual: bool = False,
+    attempt_pixel_perfect: bool = False,
+    disable_mouse_acceleration: bool = False
 ) -> None:
     '''
-    TODO
+    Press and hold a mouse button while moving to the target coordinates.
+
+    See `moveTo` for more information on most arguments.
+
+    `button` is a string that is one of the following constants:
+    MOUSE_LEFT, MOUSE_RIGHT, MOUSE_MIDDLE, MOUSE_BUTTON4, MOUSE_BUTTON5,
+    MOUSE_PRIMARY (default), MOUSE_SECONDARY.
+
+    If `mouseDownUp` (default: True) is manually set to False, then this
+    function is basically the same as `moveTo`. Only exists to match PyAutoGUI.
 
     If `_pause` is True (default), then an automatic sleep will be performed
     after the function finshes executing. The duration is set by the global
     variable `PAUSE`.
 
-    NOTE: `logScreenshot`, `tween`, `duration` are currently unsupported.
+    ----------------------------------------------------------------------------
+
+    NOTE: `logScreenshot`, `tween` are currently unsupported.
     '''
     # TODO: bounding box check for valid position
-    if not relative:
-        if mouseDownUp:
-            mouseDown(button=button, _pause=False, virtual=virtual)
-        moveTo(
-            x,
-            y,
-            duration=duration,
-            tween=tween,
-            _pause=False,  # don't add an additional pause
-            relative=False,
-            virtual=virtual
-        )
-        if mouseDownUp:
-            mouseUp(button=button, _pause=False, virtual=virtual)
-    else:
-        currentX: int
-        currentY: int
-        currentX, currentY = _position()
-        if x is None or y is None:
-            raise ValueError("x and y have to be integers if relative is set!")
-        dragRel(
-            x - currentX,
-            y - currentY,
-            duration=duration,
-            tween=tween,
-            logScreenshot=logScreenshot,
-            _pause=False,  # Don't add an additional pause
-            relative=True,
-            virtual=virtual
-        )
+    if button is None:
+        button = MOUSE_PRIMARY
+    if mouseDownUp:
+        mouseDown(button=button, _pause=False, virtual=virtual)
+    moveTo(
+        x,
+        y,
+        duration=duration,
+        tween=tween,
+        logScreenshot=logScreenshot,
+        _pause=False,  # don't add an additional pause
+        relative=relative,
+        virtual=virtual,
+        attempt_pixel_perfect=attempt_pixel_perfect,
+        disable_mouse_acceleration=disable_mouse_acceleration
+    )
+    if mouseDownUp:
+        mouseUp(button=button, _pause=False, virtual=virtual)
 # ------------------------------------------------------------------------------
 
 
@@ -2288,57 +2926,52 @@ def dragRel(
     yOffset: int | None = None,
     duration: float = 0.0,
     tween: None = None,
-    button: str = MOUSE_PRIMARY,
+    button: str | None = None,
     logScreenshot: bool = False,
     _pause: bool = True,
     mouseDownUp: bool = True,
     *,
     relative: bool = False,
     virtual: bool = False,
+    disable_mouse_acceleration: bool = False
 ) -> None:
     '''
-    TODO
+    Press and hold a mouse button while moving a relative distance
+
+    See `moveRel` for more information on most arguments.
+
+    `button` is a string that is one of the following constants:
+    MOUSE_LEFT, MOUSE_RIGHT, MOUSE_MIDDLE, MOUSE_BUTTON4, MOUSE_BUTTON5,
+    MOUSE_PRIMARY (default), MOUSE_SECONDARY.
+
+    If `mouseDownUp` (default: True) is manually set to False, then this
+    function is basically the same as `moveTo`. Only exists to match PyAutoGUI.
 
     If `_pause` is True (default), then an automatic sleep will be performed
     after the function finshes executing. The duration is set by the global
     variable `PAUSE`.
 
-    NOTE: `logScreenshot`, `tween`, `duration` are currently unsupported.
+    ----------------------------------------------------------------------------
+
+    NOTE: `logScreenshot`, `tween` are currently unsupported.
     '''
     # TODO: bounding box check for valid position
-    if xOffset is None:
-        xOffset = 0
-    if yOffset is None:
-        yOffset = 0
-    if not relative:
-        x: int
-        y: int
-        x, y = _position()
-        dragTo(
-            x + xOffset,
-            y + yOffset,
-            duration=duration,
-            tween=tween,
-            button=button,
-            logScreenshot=logScreenshot,
-            _pause=False,  # don't add an additional pause
-            relative=False,
-            virtual=virtual
-        )
-    else:
-        if mouseDownUp:
-            mouseDown(button=button, _pause=False, virtual=virtual)
-        moveRel(
-            xOffset,
-            yOffset,
-            duration=duration,
-            tween=tween,
-            _pause=False,  # don't add an additional pause
-            relative=False,
-            virtual=virtual
-        )
-        if mouseDownUp:
-            mouseUp(button=button, _pause=False, virtual=virtual)
+    if button is None:
+        button = MOUSE_PRIMARY
+    if mouseDownUp:
+        mouseDown(button=button, _pause=False, virtual=virtual)
+    moveRel(
+        xOffset,
+        yOffset,
+        duration=duration,
+        tween=tween,
+        _pause=False,  # don't add an additional pause
+        relative=False,
+        virtual=virtual,
+        disable_mouse_acceleration=disable_mouse_acceleration,
+    )
+    if mouseDownUp:
+        mouseUp(button=button, _pause=False, virtual=virtual)
 # ------------------------------------------------------------------------------
 
 
@@ -2386,6 +3019,8 @@ def scancode_keyDown(
     press the shift key before supported scancodes (indicitated by a special
     bit outside the regular scancode range, while it technically can be used,
     it's not intended for public access).
+
+    ----------------------------------------------------------------------------
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
@@ -2453,6 +3088,8 @@ def scancode_keyUp(
     bit outside the regular scancode range, while it technically can be used,
     it's not intended for public access).
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
     scancodes_sequence: ScancodeSequence
@@ -2507,7 +3144,7 @@ def _helper_scancode_press(
         _pause=_pause,
         auto_shift=auto_shift
     )
-    time.sleep(duration)
+    _sleep(duration)
     upped: bool = scancode_keyUp(
         scancodes,
         _pause=_pause,
@@ -2562,6 +3199,8 @@ def scancode_press(
     bit outside the regular scancode range, while it technically can be used,
     it's not intended for public access).
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
     scancodes_sequence: Sequence[ScancodeTypes]
@@ -2579,13 +3218,13 @@ def scancode_press(
     apply_interval: bool = False
     for _ in range(presses):
         if apply_interval:  # Don't delay first press
-            time.sleep(interval)
+            _sleep(interval)
         apply_interval = True
 
         apply_delay: bool = False
         for c in scancodes_sequence:
             if apply_delay:  # Don't delay first press
-                time.sleep(delay)
+                _sleep(delay)
             apply_delay = True
 
             completedPresses += _helper_scancode_press(
@@ -2635,6 +3274,8 @@ def scancode_hold(
 
     If `raise_on_failure` is True, then `PriorInputFailedException` will be
     raised if not all keyboard inputs could be executed successfully.
+
+    ----------------------------------------------------------------------------
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
@@ -2693,6 +3334,8 @@ def scancode_hotkey(
     bit outside the regular scancode range, while it technically can be used,
     it's not intended for public access).
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
     expectedPresses: int = len(args)
@@ -2702,17 +3345,17 @@ def scancode_hotkey(
     apply_interval: bool = False
     for code in args:
         if apply_interval:
-            time.sleep(interval)  # sleep between iterations
+            _sleep(interval)  # sleep between iterations
         apply_interval = True
 
         downed += scancode_keyDown(code, _pause=False, auto_shift=auto_shift)
 
-    time.sleep(wait)
+    _sleep(wait)
 
     apply_interval = False
     for code in reversed(args):
         if apply_interval:
-            time.sleep(interval)  # sleep between iterations
+            _sleep(interval)  # sleep between iterations
         apply_interval = True
 
         upped += scancode_keyUp(code, _pause=False, auto_shift=auto_shift)
@@ -2748,6 +3391,8 @@ def keyDown(
     If `auto_shift` is True, then "shifted" characters like upper case letters
     and the symbols on the number row automatically insert a Shift scancode
     into the input sequence.
+
+    ----------------------------------------------------------------------------
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
@@ -2788,6 +3433,8 @@ def keyUp(
     and the symbols on the number row automatically insert a Shift scancode
     into the input sequence.
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
     scancode: ScancodeTypes | None = KEYBOARD_MAPPING.get(key)
@@ -2815,7 +3462,7 @@ def _helper_press(
     Return `True` if complete press was successful.
     '''
     downed: bool = keyDown(key, _pause=_pause, auto_shift=auto_shift)
-    time.sleep(duration)
+    _sleep(duration)
     upped: bool = keyUp(key, _pause=_pause, auto_shift=auto_shift)
     # Count key press as complete if key was "downed" and "upped"
     # successfully
@@ -2866,6 +3513,8 @@ def press(
     and the symbols on the number row automatically insert a Shift scancode
     into the input sequence.
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
     if isinstance(keys, str):
@@ -2879,13 +3528,13 @@ def press(
     apply_interval: bool = False
     for _ in range(presses):
         if apply_interval:  # Don't delay first press
-            time.sleep(interval)
+            _sleep(interval)
         apply_interval = True
 
         apply_delay: bool = False
         for k in keys:
             if apply_delay:  # Don't delay first press
-                time.sleep(delay)
+                _sleep(delay)
             apply_delay = True
 
             completedPresses += _helper_press(
@@ -2936,6 +3585,8 @@ def hold(
 
     If `raise_on_failure` is True, then `PriorInputFailedException` will be
     raised if not all keyboard inputs could be executed successfully.
+
+    ----------------------------------------------------------------------------
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
@@ -3002,13 +3653,15 @@ def typewrite(
     bit outside the regular scancode range, while it technically can be used,
     it's not intended for public access).
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
 
     apply_interval: bool = False
     for key in message:
         if apply_interval:  # Don't delay first press
-            time.sleep(interval)
+            _sleep(interval)
         apply_interval = True
 
         press(
@@ -3059,22 +3712,24 @@ def hotkey(
     bit outside the regular scancode range, while it technically can be used,
     it's not intended for public access).
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
     apply_interval: bool = False
     for key in args:
         if apply_interval:
-            time.sleep(interval)  # sleep between iterations
+            _sleep(interval)  # sleep between iterations
         apply_interval = True
 
         keyDown(key, _pause=False, auto_shift=auto_shift)
 
-    time.sleep(wait)
+    _sleep(wait)
 
     apply_interval = False
     for key in reversed(args):
         if apply_interval:
-            time.sleep(interval)  # sleep between iterations
+            _sleep(interval)  # sleep between iterations
         apply_interval = True
 
         keyUp(key, _pause=False, auto_shift=auto_shift)
@@ -3101,6 +3756,8 @@ def unicode_charDown(
     If `_pause` is True (default), then an automatic sleep will be performed
     after the function finshes executing. The duration is set by the global
     variable `PAUSE`.
+
+    ----------------------------------------------------------------------------
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
@@ -3147,6 +3804,8 @@ def unicode_charUp(
     after the function finshes executing. The duration is set by the global
     variable `PAUSE`.
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
     utf16surrogates: bytes = char.encode('utf-16be')
@@ -3185,7 +3844,7 @@ def _helper_unicode_press_char(
     Return `True` if complete press was successful.
     '''
     downed: bool = unicode_charDown(char, _pause=_pause)
-    time.sleep(duration)
+    _sleep(duration)
     upped: bool = unicode_charUp(char, _pause=_pause)
     # Count key press as complete if key was "downed" and "upped"
     # successfully
@@ -3228,6 +3887,8 @@ def unicode_press(
     after every call to this function, not inbetween (no extra pause between
     pressing and releasing key, use the `duration` argument instead)!
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
     if isinstance(chars, str):
@@ -3240,13 +3901,13 @@ def unicode_press(
     apply_interval: bool = False
     for _ in range(presses):
         if apply_interval:  # Don't delay first press
-            time.sleep(interval)
+            _sleep(interval)
         apply_interval = True
 
         apply_delay: bool = False
         for c in chars:
             if apply_delay:  # Don't delay first press
-                time.sleep(delay)
+                _sleep(delay)
             apply_delay = True
 
             completedPresses += _helper_unicode_press_char(
@@ -3290,6 +3951,8 @@ def unicode_hold(
 
     If `raise_on_failure` is True, then `PriorInputFailedException` will be
     raised if not all keyboard inputs could be executed successfully.
+
+    ----------------------------------------------------------------------------
 
     NOTE: `logScreenshot` is currently unsupported.
     '''
@@ -3347,12 +4010,14 @@ def unicode_typewrite(
     after every call to this function, not inbetween (no pause between press
     and releasing key)!
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
     apply_interval: bool = False
     for char in message:
         if apply_interval:
-            time.sleep(interval)  # sleep between iterations
+            _sleep(interval)  # sleep between iterations
         apply_interval = True
 
         unicode_press(char, _pause=False, delay=delay, duration=duration)
@@ -3394,23 +4059,31 @@ def unicode_hotkey(
     after every call to this function, not inbetween (no pause between press
     and releasing key)!
 
+    ----------------------------------------------------------------------------
+
     NOTE: `logScreenshot` is currently unsupported.
     '''
     apply_interval: bool = False
     for char in args:
         if apply_interval:
-            time.sleep(interval)  # sleep between iterations
+            _sleep(interval)  # sleep between iterations
         apply_interval = True
 
         unicode_charDown(char, _pause=False)
 
-    time.sleep(wait)
+    _sleep(wait)
 
     apply_interval = False
     for char in reversed(args):
         if apply_interval:
-            time.sleep(interval)  # sleep between iterations
+            _sleep(interval)  # sleep between iterations
         apply_interval = True
 
         unicode_charUp(char, _pause=False)
+# ------------------------------------------------------------------------------
+
+
+# ------------------------------------------------------------------------------
+# Save current Enhanced Pointer Precsion setting during import
+store_mouse_acceleration_settings()
 # ------------------------------------------------------------------------------
