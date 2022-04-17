@@ -1892,7 +1892,7 @@ def _add_one_step(
 
 
 # ------------------------------------------------------------------------------
-# ----- Enhanced Pointer Precision storage singleton ---------------------------
+# ----- Mouse acceleration and Ehanced Pointer Precision storage singleton -----
 class __MouseSpeedSettings:
     '''
     Allows controlled storage of Windows Enhanced Pointer Precision and mouse
@@ -3047,9 +3047,11 @@ def scancode_keyDown(
             )]
             expectedEvents += 1
 
+        scancode = scancode & 0xFFFF
+
         extendedFlag = _KEYEVENTF_EXTENDEDKEY if scancode >= 0xE000 else 0
         input_structs += [_create_keyboard_input(
-            wScan=scancode & 0xFFFF,
+            wScan=scancode,
             dwFlags=keybdFlags | extendedFlag
         )]
         expectedEvents += 1
@@ -3114,6 +3116,8 @@ def scancode_keyUp(
                 dwFlags=keybdFlags
             )]
             expectedEvents += 1
+
+        scancode = scancode & 0xFFFF
 
         extendedFlag = _KEYEVENTF_EXTENDEDKEY if scancode >= 0xE000 else 0
         input_structs += [_create_keyboard_input(
