@@ -16,6 +16,9 @@ Changes to the fork include:
 * Adding Scancode input functions that allow lower level access to SendInput's abstractions
 * Adding support for multi-monitor setups via virtual resolution
 * Adding support for swapped primary mouse buttons
+* Adding duration support for mouse functions
+* Adding sleep calibration for mouse duration
+* Adding automatic disabling of mouse acceleration for more accurate relative mouse movement
 * Increase documentation
 
 **This library uses in-line type annotations that require at least Python version 3.10 or higher and there are no plans to make the code backwards compatible to older Python versions!**
@@ -27,7 +30,7 @@ Changes to the fork include:
 - ~~drag functions~~
 - ~~hotkey functions~~
 - ~~support for special characters requiring the shift key (ie. '!', '@', '#'...)~~
-- ignored parameters on mouse functions: duration, tween, logScreenshot
+- ignored parameters on mouse functions: ~~duration~~, tween, logScreenshot
 - ignored parameters on keyboard functions: logScreenshot
 - automatic testing
 
