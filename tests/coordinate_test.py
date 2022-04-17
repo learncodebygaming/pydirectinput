@@ -14,7 +14,8 @@ def coordinate_conversion_test(  # pyright: ignore[reportUnusedFunction]
     ''''''
     def _raw_moveTo(x: int, y: int, virtual: bool = False) -> None:
         dwFlags: int = (
-          pydirectinput._MOUSEEVENTF_MOVE | pydirectinput._MOUSEEVENTF_ABSOLUTE
+            pydirectinput._MOUSEEVENTF_MOVE
+            | pydirectinput._MOUSEEVENTF_ABSOLUTE
         )
         if virtual:
             dwFlags |= pydirectinput._MOUSEEVENTF_VIRTUALDESK
@@ -28,7 +29,7 @@ def coordinate_conversion_test(  # pyright: ignore[reportUnusedFunction]
     pydirectinput._sleep(1)
     for i in range(65536):
         _raw_moveTo(i, 32000, virtual=virtual)
-        x, _ = pydirectinput._position()
+        x, _ = pydirectinput.position()
         results.append((i, x))
     if dump:
         import json

@@ -1664,7 +1664,7 @@ def _failSafeCheck() -> None:
 
     Set global var `FAILSAFE` to False to stop raising exceptions.
     '''
-    if FAILSAFE and tuple(_position()) in FAILSAFE_POINTS:
+    if FAILSAFE and tuple(position()) in FAILSAFE_POINTS:
         raise FailSafeException(
             "PyDirectInput fail-safe triggered from mouse moving to a corner "
             "of the screen. "
@@ -1761,9 +1761,9 @@ def _to_windows_coordinates(
     offset_top: int
 
     if virtual:
-        display_width, display_height, offset_left, offset_top = _virtual_size()
+        display_width, display_height, offset_left, offset_top = virtual_size()
     else:
-        display_width, display_height = _size()
+        display_width, display_height = size()
         offset_left, offset_top = 0, 0
 
     windows_x: int = _calc_normalized_screen_coord(
@@ -1780,7 +1780,7 @@ def _to_windows_coordinates(
 
 
 # ----- get mouse position -----------------------------------------------------
-def _position(
+def position(
     x: int | float | None = None,
     y: int | float | None = None
 ) -> tuple[int, int]:
@@ -1799,7 +1799,7 @@ def _position(
 
 
 # ----- get primary screen resolution ------------------------------------------
-def _size() -> tuple[int, int]:
+def size() -> tuple[int, int]:
     '''
     Return the size of the primary display as tuple (`width`, `height`).
     '''
@@ -1811,7 +1811,7 @@ def _size() -> tuple[int, int]:
 
 
 # ----- get resolution of multi monitor bounding box ---------------------------
-def _virtual_size() -> tuple[int, int, int, int]:
+def virtual_size() -> tuple[int, int, int, int]:
     '''
     Return the the display size of the complete virtual monitor bounding box
     rectangle as tuple (`width`, `height`, `left_offset`, `top_offset`).
@@ -1827,6 +1827,37 @@ def _virtual_size() -> tuple[int, int, int, int]:
         _get_system_metrics(_SM_XVIRTUALSCREEN),
         _get_system_metrics(_SM_YVIRTUALSCREEN),
     )
+# ------------------------------------------------------------------------------
+
+
+# ----- are coordinates on primary monitor -------------------------------------
+def onScreen(
+    x: int | tuple[int, int] | None = None,
+    y: int | None = None
+) -> bool:
+    '''
+    Returns whether the given xy coordinates are on the primary screen or not.
+    '''
+    if isinstance(x, Sequence):
+        if y is not None:
+            raise ValueError(
+                "onScreen() does not accept Sequence-types as first argument "
+                "if a second argument is also provided!"
+            )
+        try:
+            x, y = x[0], x[1]
+        except IndexError as e:
+            raise ValueError(
+                "onScreen() does not accept single element sequences "
+                "as first argument!"
+            ) from e
+
+    x, y = position(x, y)
+    display_width: int
+    display_height: int
+    display_width, display_height = size()
+
+    return (0 <= x < display_width and 0 <= y < display_height)
 # ------------------------------------------------------------------------------
 
 
@@ -1961,7 +1992,7 @@ class __MouseSpeedSettings:
 
 # ----- Temporarily disable Enhanced Pointer Precision -------------------------
 @contextmanager
-def without_mouse_acceleration() -> Generator[None, None, None]:
+def _without_mouse_acceleration() -> Generator[None, None, None]:
     '''
     Context manager that allows temporarily disabling Windows Enhanced Pointer
     Precision on enter and restoring the previous setting on exit.
@@ -2653,13 +2684,13 @@ def moveTo(
     current_x: int = 0
     current_y: int = 0
     if relative:
-        current_x, current_y = _position()
+        current_x, current_y = position()
         final_x = current_x + (0 if x is None else x)
         final_y = current_y + (0 if y is None else y)
     else:
         # if only x or y is provided, will keep the current position for the
         # other axis
-        final_x, final_y = _position(x, y)
+        final_x, final_y = position(x, y)
 
     dwFlags: int = (_MOUSEEVENTF_MOVE | _MOUSEEVENTF_ABSOLUTE)
     if virtual:
@@ -2681,7 +2712,7 @@ def moveTo(
         if time_segments <= 1:
             keep_looping = False
 
-        current_x, current_y = _position()
+        current_x, current_y = position()
         x = _add_one_step(current_x, final_x, time_segments)
         y = _add_one_step(current_y, final_y, time_segments)
 
@@ -2698,7 +2729,7 @@ def moveTo(
     # After-care: Did Windows move the cursor correctly?
     # If not, attempt to fix off-by-one errors.
     if attempt_pixel_perfect:
-        current_x, current_y = _position()
+        current_x, current_y = position()
         if current_x == final_x and current_y == final_y:
             return  # We are already pixel perfect, great!
         moveRel(
@@ -2847,7 +2878,7 @@ def moveRel(
             if disable_mouse_acceleration:
                 # Use a context manager to temporarily disable enhanced pointer
                 # precision
-                with without_mouse_acceleration():
+                with _without_mouse_acceleration():
                     _send_input(input_struct)
             else:
                 _send_input(input_struct)
