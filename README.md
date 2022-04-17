@@ -19,6 +19,10 @@ In order to increase compatibility with DirectX software and games, the internal
 For more information, see the original README at https://github.com/learncodebygaming/pydirectinput
 
 
+## Installation
+
+`pip install pydirectinput-rgx`
+
 ## Provided functions with same/similar signature to PyAutoGui:
 
 * Informational:
