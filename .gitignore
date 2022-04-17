@@ -2,6 +2,7 @@
 /.vscode
 __pycache__
 /pydirectinput.egg-info
+/pydirectinput_rgx.egg-info
 /build
 /dist
 /publish_instructions.txt
