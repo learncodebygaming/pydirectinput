@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="pydirectinput_rgx",
-    version="2.0.0",
+    version="2.0.1",
     author="ReggX",
     author_email="dev@reggx.eu",
     description="Python mouse and keyboard input automation for Windows using Direct Input.",
@@ -13,6 +13,9 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/reggx/pydirectinput_rgx",
     packages=['pydirectinput'],
+    package_data={
+        'pydirectinput': ['py.typed']
+    },
     classifiers=[
         "Programming Language :: Python :: 3.10",
         "Intended Audience :: Developers",
