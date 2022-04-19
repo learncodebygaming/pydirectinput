@@ -76,23 +76,23 @@ Actual time spent on sleeping with MINIMUM_SLEEP_IDEAL, rounded up for safety.
 
 
 # ----- Constants for the mouse button names -----------------------------------
-MOUSE_LEFT: Final[str] = "left"
+MOUSE_LEFT: str = "left"
 '''Name of left mouse button'''
-MOUSE_MIDDLE: Final[str] = "middle"
+MOUSE_MIDDLE: str = "middle"
 '''Name of middle mouse button'''
-MOUSE_RIGHT: Final[str] = "right"
+MOUSE_RIGHT: str = "right"
 '''Name of right mouse button'''
-MOUSE_PRIMARY: Final[str] = "primary"
+MOUSE_PRIMARY: str = "primary"
 '''Name of primary mouse button (left mouse button unless swapped)'''
-MOUSE_SECONDARY: Final[str] = "secondary"
+MOUSE_SECONDARY: str = "secondary"
 '''Name of secondary mouse button (right mouse button unless swapped)'''
-MOUSE_BUTTON4: Final[str] = "mouse4"
+MOUSE_BUTTON4: str = "mouse4"
 '''Name of first additional mouse button (usually a side button)'''
-MOUSE_X1: Final[str] = "x1"
+MOUSE_X1: str = "x1"
 '''Name of first additional mouse button (usually a side button)'''
-MOUSE_BUTTON5: Final[str] = "mouse5"
+MOUSE_BUTTON5: str = "mouse5"
 '''Name of second additional mouse button (usually a side button)'''
-MOUSE_X2: Final[str] = "x2"
+MOUSE_X2: str = "x2"
 '''Name of second additional mouse button (usually a side button)'''
 # ------------------------------------------------------------------------------
 
@@ -162,86 +162,86 @@ def calibrate_real_sleep_minimum(
 
 
 # ----- INPUT.type constants ---------------------------------------------------
-_INPUT_MOUSE: Literal[0x0000] = 0x0000  # c_ulong(0x0000)
+_INPUT_MOUSE: Final = 0x0000  # c_ulong(0x0000)
 '''The event is a mouse event. Use the mi structure of the union.'''
-_INPUT_KEYBOARD: Literal[0x0001] = 0x0001  # c_ulong(0x0001)
+_INPUT_KEYBOARD: Final = 0x0001  # c_ulong(0x0001)
 '''The event is a keyboard event. Use the ki structure of the union.'''
-_INPUT_HARDWARE: Literal[0x0002] = 0x0002  # c_ulong(0x0002)
+_INPUT_HARDWARE: Final = 0x0002  # c_ulong(0x0002)
 '''The event is a hardware event. Use the hi structure of the union.'''
 # ------------------------------------------------------------------------------
 
 
 # ----- MOUSEINPUT.mouseData constants -----------------------------------------
-_XBUTTON1: Literal[0x0001] = 0x0001  # c_ulong(0x0001)
+_XBUTTON1: Final = 0x0001  # c_ulong(0x0001)
 '''Set if the first X button is pressed or released.'''
-_XBUTTON2: Literal[0x0002] = 0x0002  # c_ulong(0x0002)
+_XBUTTON2: Final = 0x0002  # c_ulong(0x0002)
 '''Set if the second X button is pressed or released.'''
 # ------------------------------------------------------------------------------
 
 
 # ----- MOUSEINPUT.dwFlags constants -------------------------------------------
-_MOUSEEVENTF_MOVE: Literal[0x0001] = 0x0001  # c_ulong(0x0001)
+_MOUSEEVENTF_MOVE: Final = 0x0001  # c_ulong(0x0001)
 '''Movement occurred.'''
 
-_MOUSEEVENTF_LEFTDOWN: Literal[0x0002] = 0x0002  # c_ulong(0x0002)
+_MOUSEEVENTF_LEFTDOWN: Final = 0x0002  # c_ulong(0x0002)
 '''The left button was pressed.'''
-_MOUSEEVENTF_LEFTUP: Literal[0x0004] = 0x0004  # c_ulong(0x0004)
+_MOUSEEVENTF_LEFTUP: Final = 0x0004  # c_ulong(0x0004)
 '''The left button was released.'''
-_MOUSEEVENTF_LEFTCLICK: Final[int] = (
+_MOUSEEVENTF_LEFTCLICK: Final = (
     _MOUSEEVENTF_LEFTDOWN + _MOUSEEVENTF_LEFTUP  # c_ulong(0x0006)
 )
 '''Combined event: Left button was clicked.'''
 
-_MOUSEEVENTF_RIGHTDOWN: Literal[0x0008] = 0x0008  # c_ulong(0x0008)
+_MOUSEEVENTF_RIGHTDOWN: Final = 0x0008  # c_ulong(0x0008)
 '''The right button was pressed.'''
-_MOUSEEVENTF_RIGHTUP: Literal[0x0010] = 0x0010  # c_ulong(0x0010)
+_MOUSEEVENTF_RIGHTUP: Final = 0x0010  # c_ulong(0x0010)
 '''The right button was released.'''
-_MOUSEEVENTF_RIGHTCLICK: Final[int] = (
+_MOUSEEVENTF_RIGHTCLICK: Final = (
     _MOUSEEVENTF_RIGHTDOWN + _MOUSEEVENTF_RIGHTUP  # c_ulong(0x0018)
 )
 '''Combined event: Right button was clicked.'''
 
-_MOUSEEVENTF_MIDDLEDOWN: Literal[0x0020] = 0x0020  # c_ulong(0x0020)
+_MOUSEEVENTF_MIDDLEDOWN: Final = 0x0020  # c_ulong(0x0020)
 '''The middle button was pressed.'''
-_MOUSEEVENTF_MIDDLEUP: Literal[0x0040] = 0x0040  # c_ulong(0x0040)
+_MOUSEEVENTF_MIDDLEUP: Final = 0x0040  # c_ulong(0x0040)
 '''The middle button was released.'''
-_MOUSEEVENTF_MIDDLECLICK: Final[int] = (
+_MOUSEEVENTF_MIDDLECLICK: Final = (
     _MOUSEEVENTF_MIDDLEDOWN + _MOUSEEVENTF_MIDDLEUP  # c_ulong(0x0060)
 )
 '''Combined event: Middle button was clicked.'''
 
-_MOUSEEVENTF_XDOWN: Literal[0x0080] = 0x0080  # c_ulong(0x0080)
+_MOUSEEVENTF_XDOWN: Final = 0x0080  # c_ulong(0x0080)
 '''An X button was pressed.'''
-_MOUSEEVENTF_XUP: Literal[0x0100] = 0x0100  # c_ulong(0x0100)
+_MOUSEEVENTF_XUP: Final = 0x0100  # c_ulong(0x0100)
 '''An X button was released.'''
-_MOUSEEVENTF_XCLICK: Final[int] = (
+_MOUSEEVENTF_XCLICK: Final = (
     _MOUSEEVENTF_XDOWN + _MOUSEEVENTF_XUP  # c_ulong(0x0180)
 )
 '''Combined event: Side button was clicked.'''
 
-_MOUSEEVENTF_WHEEL: Literal[0x0800] = 0x0800  # c_ulong(0x0800)
+_MOUSEEVENTF_WHEEL: Final = 0x0800  # c_ulong(0x0800)
 '''
 The wheel was moved, if the mouse has a wheel.
 The amount of movement is specified in mouseData.
 '''
-_MOUSEEVENTF_HWHEEL: Literal[0x1000] = 0x1000  # c_ulong(0x1000)
+_MOUSEEVENTF_HWHEEL: Final = 0x1000  # c_ulong(0x1000)
 '''
 The wheel was moved horizontally, if the mouse has a wheel. The amount of
 movement is specified in mouseData.
 Windows XP/2000: This value is not supported.
 '''
 
-_MOUSEEVENTF_MOVE_NOCOALESCE: Literal[0x2000] = 0x2000  # c_ulong(0x2000)
+_MOUSEEVENTF_MOVE_NOCOALESCE: Final = 0x2000  # c_ulong(0x2000)
 '''
 The WM_MOUSEMOVE messages will not be coalesced. The default behavior is to
 coalesce WM_MOUSEMOVE messages.
 Windows XP/2000: This value is not supported.
 '''
-_MOUSEEVENTF_VIRTUALDESK: Literal[0x4000] = 0x4000  # c_ulong(0x4000)
+_MOUSEEVENTF_VIRTUALDESK: Final = 0x4000  # c_ulong(0x4000)
 '''
 Maps coordinates to the entire desktop. Must be used with MOUSEEVENTF_ABSOLUTE.
 '''
-_MOUSEEVENTF_ABSOLUTE: Literal[0x8000] = 0x8000  # c_ulong(0x8000)
+_MOUSEEVENTF_ABSOLUTE: Final = 0x8000  # c_ulong(0x8000)
 '''
 The dx and dy members contain normalized absolute coordinates. If the flag is
 not set, dxand dy contain relative data (the change in position since the last
@@ -253,7 +253,7 @@ information about relative mouse motion, see the following Remarks section.
 
 
 # ----- Scrolling distance -----------------------------------------------------
-_WHEEL_DELTA: Literal[120] = 120
+_WHEEL_DELTA: Final = 120
 '''
 The delta was set to 120 to allow Microsoft or other vendors to build
 finer-resolution wheels (a freely-rotating wheel with no notches) to send more
@@ -265,23 +265,23 @@ https://docs.microsoft.com/en-us/windows/win32/inputdev/wm-mousewheel
 
 
 # ----- KEYBDINPUT.dwFlags Flags ------------------------------------------------
-_KEYEVENTF_EXTENDEDKEY: Literal[0x0001] = 0x0001  # c_ulong(0x0001)
+_KEYEVENTF_EXTENDEDKEY: Final = 0x0001  # c_ulong(0x0001)
 '''
 If specified, the scan code was preceded by a prefix byte that has the value
 0xE0 (224).
 '''
-_KEYEVENTF_KEYUP: Literal[0x0002] = 0x0002  # c_ulong(0x0002)
+_KEYEVENTF_KEYUP: Final = 0x0002  # c_ulong(0x0002)
 '''
 If specified, the key is being released. If not specified, the key is being
 pressed.
 '''
-_KEYEVENTF_UNICODE: Literal[0x0004] = 0x0004  # c_ulong(0x0004)
+_KEYEVENTF_UNICODE: Final = 0x0004  # c_ulong(0x0004)
 '''
 If specified, the system synthesizes a VK_PACKET keystroke. The wVk parameter
 must be zero. This flag can only be combined with the KEYEVENTF_KEYUP flag.
 For more information, see the Remarks section.
 '''
-_KEYEVENTF_SCANCODE: Literal[0x0008] = 0x0008  # c_ulong(0x0008)
+_KEYEVENTF_SCANCODE: Final = 0x0008  # c_ulong(0x0008)
 '''If specified, wScan identifies the key and wVk is ignored.'''
 # ------------------------------------------------------------------------------
 
@@ -331,33 +331,33 @@ movement along the x or y axis by up to four times.
 
 
 # ----- MapVirtualKey Map Types ------------------------------------------------
-_MAPVK_VK_TO_VSC: Literal[0] = 0  # c_unit(0)
+_MAPVK_VK_TO_VSC: Final = 0  # c_unit(0)
 '''
 The uCode parameter is a virtual-key code and is translated into a scan code.
 If it is a virtual-key code that does not distinguish between left- and
 right-hand keys, the left-hand scan code is returned.
 If there is no translation, the function returns 0.
 '''
-_MAPVK_VSC_TO_VK: Literal[1] = 1  # c_unit(1)
+_MAPVK_VSC_TO_VK: Final = 1  # c_unit(1)
 '''
 The uCode parameter is a scan code and is translated into a virtual-key code
 that does not distinguish between left- and right-hand keys.
 If there is no translation, the function returns 0.
 '''
-_MAPVK_VK_TO_CHAR: Literal[2] = 2  # c_unit(2)
+_MAPVK_VK_TO_CHAR: Final = 2  # c_unit(2)
 '''
 The uCode parameter is a virtual-key code and is translated into an unshifted
 character value in the low order word of the return value. Dead keys
 (diacritics) are indicated by setting the top bit of the return value.
 If there is no translation, the function returns 0.
 '''
-_MAPVK_VSC_TO_VK_EX: Literal[3] = 3  # c_unit(3)
+_MAPVK_VSC_TO_VK_EX: Final = 3  # c_unit(3)
 '''
 The uCode parameter is a scan code and is translated into a virtual-key code
 that distinguishes between left- and right-hand keys.
 If there is no translation, the function returns 0.
 '''
-_MAPVK_VK_TO_VSC_EX: Literal[4] = 4  # c_unit(4)
+_MAPVK_VK_TO_VSC_EX: Final = 4  # c_unit(4)
 '''
 Windows Vista and later: The uCode parameter is a virtual-key code and is
 translated into a scan code. If it is a virtual-key code that does not
@@ -370,7 +370,7 @@ If there is no translation, the function returns 0.
 
 
 # ----- GetSystemMetrics nIndex arguments --------------------------------------
-_SM_CXSCREEN: Literal[0] = 0
+_SM_CXSCREEN: Final = 0
 '''
 The width of the screen of the primary display monitor, in pixels. This is the
 same value obtained by calling GetDeviceCaps[1] as follows:
@@ -378,7 +378,7 @@ same value obtained by calling GetDeviceCaps[1] as follows:
 
 [1] https://docs.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-getdevicecaps
 '''
-_SM_CYSCREEN: Literal[1] = 1
+_SM_CYSCREEN: Final = 1
 '''
 The height of the screen of the primary display monitor, in pixels. This is the
 same value obtained by calling GetDeviceCaps[1] as follows:
@@ -386,30 +386,30 @@ same value obtained by calling GetDeviceCaps[1] as follows:
 
 [1] https://docs.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-getdevicecaps
 '''
-_SM_SWAPBUTTON: Literal[23] = 23
+_SM_SWAPBUTTON: Final = 23
 '''
 Nonzero if the meanings of the left and right mouse buttons are swapped;
 otherwise, 0.
 '''
-_SM_XVIRTUALSCREEN: Literal[76] = 76
+_SM_XVIRTUALSCREEN: Final = 76
 '''
 The coordinates for the left side of the virtual screen. The virtual screen is
 the bounding rectangle of all display monitors. The SM_CXVIRTUALSCREEN metric
 is the width of the virtual screen.
 '''
-_SM_YVIRTUALSCREEN: Literal[77] = 77
+_SM_YVIRTUALSCREEN: Final = 77
 '''
 The coordinates for the top of the virtual screen. The virtual screen is the
 bounding rectangle of all display monitors. The SM_CYVIRTUALSCREEN metric is
 the height of the virtual screen.
 '''
-_SM_CXVIRTUALSCREEN: Literal[78] = 78
+_SM_CXVIRTUALSCREEN: Final = 78
 '''
 The width of the virtual screen, in pixels. The virtual screen is the bounding
 rectangle of all display monitors. The SM_XVIRTUALSCREEN metric is the
 coordinates for the left side of the virtual screen.
 '''
-_SM_CYVIRTUALSCREEN: Literal[79] = 79
+_SM_CYVIRTUALSCREEN: Final = 79
 '''
 The height of the virtual screen, in pixels. The virtual screen is the bounding
 rectangle of all display monitors. The SM_YVIRTUALSCREEN metric is the
@@ -419,7 +419,7 @@ coordinates for the top of the virtual screen.
 
 
 # ----- SystemParametersInfoW uiAction arguments -------------------------------
-_SPI_GETMOUSE: Literal[0x0003] = 0x0003  # c_uint
+_SPI_GETMOUSE: Final = 0x0003  # c_uint
 '''
 Retrieves the two mouse threshold values and the mouse acceleration. The
 pvParam parameter must point to an array of three integers that receives these
@@ -427,7 +427,7 @@ values. See mouse_event[1] for further information.
 
 https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mouse_event
 '''
-_SPI_SETMOUSE: Literal[0x0004] = 0x0004  # c_uint
+_SPI_SETMOUSE: Final = 0x0004  # c_uint
 '''
 Sets the two mouse threshold values and the mouse acceleration. The pvParam
 parameter must point to an array of three integers that specifies these values.
@@ -435,7 +435,7 @@ See mouse_event[1] for further information.
 
 https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mouse_event
 '''
-_SPI_GETMOUSESPEED: Literal[0x0070] = 0x0070  # c_uint
+_SPI_GETMOUSESPEED: Final = 0x0070  # c_uint
 '''
 Retrieves the current mouse speed. The mouse speed determines how far the
 pointer will move based on the distance the mouse moves. The pvParam parameter
@@ -444,7 +444,7 @@ and 20 (fastest). A value of 10 is the default. The value can be set by an
 end-user using the mouse control panel application or by an application using
 SPI_SETMOUSESPEED.
 '''
-_SPI_SETMOUSESPEED: Literal[0x0071] = 0x0071  # c_uint
+_SPI_SETMOUSESPEED: Final = 0x0071  # c_uint
 '''
 Sets the current mouse speed. The pvParam parameter is an integer between
 1 (slowest) and 20 (fastest). A value of 10 is the default. This value is
@@ -454,9 +454,9 @@ typically set using the mouse control panel application.
 
 
 # ----- MOUSEEVENTF Index constants --------------------------------------------
-_MOUSE_PRESS: Literal[0] = 0
-_MOUSE_RELEASE: Literal[1] = 1
-_MOUSE_CLICK: Literal[2] = 2
+_MOUSE_PRESS: Final = 0
+_MOUSE_RELEASE: Final = 1
+_MOUSE_CLICK: Final = 2
 # ------------------------------------------------------------------------------
 
 
@@ -1363,13 +1363,13 @@ contained in a special class ScancodeSequence instance.
 
 
 # ----- Offsets for values in KEYBOARD_MAPPING ---------------------------------
-_OFFSET_EXTENDEDKEY: Literal[0xE000] = 0xE000
-_OFFSET_SHIFTKEY: Literal[0x10000] = 0x10000
+_OFFSET_EXTENDEDKEY: Final = 0xE000
+_OFFSET_SHIFTKEY: Final = 0x10000
 # ------------------------------------------------------------------------------
 
 
 # ----- KEYBOARD_MAPPING -------------------------------------------------------
-_SHIFT_SCANCODE: Literal[0x2A] = 0x2A  # Used in auto-shifting
+_SHIFT_SCANCODE: Final = 0x2A  # Used in auto-shifting
 # should be keyboard MAKE scancodes ( <0x80 )
 # some keys require the use of EXTENDEDKEY flags, they
 US_QWERTY_MAPPING: Final[dict[str, ScancodeTypes]] = {

@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="pydirectinput_rgx",
-    version="2.0.1",
+    version="2.0.2",
     author="ReggX",
     author_email="dev@reggx.eu",
     description="Python mouse and keyboard input automation for Windows using Direct Input.",
