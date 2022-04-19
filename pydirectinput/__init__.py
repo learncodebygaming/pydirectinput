@@ -1839,6 +1839,7 @@ def onScreen(
     Returns whether the given xy coordinates are on the primary screen or not.
     '''
     if isinstance(x, Sequence):
+        assert not isinstance(x, int)  # remove int annotation, mypy needs this
         if y is not None:
             raise ValueError(
                 "onScreen() does not accept Sequence-types as first argument "
