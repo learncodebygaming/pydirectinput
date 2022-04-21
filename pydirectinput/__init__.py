@@ -3,10 +3,12 @@ Partial implementation of DirectInput function calls to simulate
 mouse and keyboard inputs.
 '''
 
+from __future__ import annotations
+
 # native imports
 import functools
 import inspect
-from threading import Lock
+import sys
 import time
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
@@ -16,11 +18,46 @@ from ctypes import (
 )
 from math import ceil, floor, log10
 from struct import unpack
-from typing import (
-    TYPE_CHECKING, Any, Callable, ClassVar, Final, Literal,
-    ParamSpec, Protocol, TypeAlias, TypeVar,
-)
-from typing import cast as hint_cast  # prevent confusion with ctypes.cast
+from threading import Lock
+
+# Windows-only
+if sys.platform != 'win32':
+    raise ImportError(
+        "This module makes Windows API calls and is thereby only available "
+        "on that plattform!"
+    )
+
+# Python 3.7 or higher
+if sys.version_info >= (3, 7):
+    from typing import Any, Callable, TypeVar, TYPE_CHECKING
+    from typing import cast as hint_cast  # prevent confusion with ctypes.cast
+else:
+    raise ImportError(
+        "This module is strictly typed and can't be used in Python <3.7!"
+    )
+
+# Python 3.8 or higher
+if sys.version_info >= (3, 8):
+    # native imports
+    from typing import ClassVar, Final, Literal, Protocol
+else:
+    # pip imports
+    from typing_extensions import ClassVar, Final, Literal, Protocol
+
+# Python 3.9 or higher
+if sys.version_info >= (3, 9):
+    _list = list
+else:
+    from typing import List
+    _list = List
+
+# Python 3.10 or higher
+if sys.version_info >= (3, 10):
+    # native imports
+    from typing import ParamSpec, TypeAlias
+else:
+    # pip imports
+    from typing_extensions import ParamSpec, TypeAlias
 
 
 # ------------------------------------------------------------------------------
@@ -522,7 +559,7 @@ update_MOUSEEVENT_mappings()  # call the function on import to set mappings.
 # ==============================================================================
 
 # ----- Pointer type to unsigned long ------------------------------------------
-_PUL_PyType: TypeAlias = type[_POINTER_TYPE[c_ulong]]
+_PUL_PyType: TypeAlias = "type[_POINTER_TYPE[c_ulong]]"
 _PUL: _PUL_PyType = POINTER(c_ulong)
 # ------------------------------------------------------------------------------
 
@@ -1338,7 +1375,7 @@ def _set_mouse_speed(mouse_speed: int) -> bool:
 # ==============================================================================
 
 # ----- Special class for key extended scancode sequences ----------------------
-class ScancodeSequence(list[int]):
+class ScancodeSequence(_list[int]):
     '''
     A special class with the sole purpose of representing extended scancode
     sequences that should be grouped together in a single INPUT array.
@@ -1352,7 +1389,7 @@ class ScancodeSequence(list[int]):
 
 
 # ----- TypeAlias for KEYBOARD_MAPPING values ----------------------------------
-ScancodeTypes: TypeAlias = int | ScancodeSequence
+ScancodeTypes: TypeAlias = "int | ScancodeSequence"
 '''
 Acceptable value types in KEYBOARD_MAPPING.
 

@@ -6,7 +6,7 @@ This package extends PyDirectInput in multiple ways. It fixes some bugs, adds th
 
 Contrary to the upstream PyDirectInput package, this package intends to replace PyAutoGUI almost completely for basic usage, skipping more advanced options like logging screenshots and custom tweening functions. This should reduce the need to install both PyDirectInput and PyAutoGUI side-by-side and thereby keep the number of dependencies to a minimum.
 
-This library is fully in-line type-annotated and passes `mypy --strict`. Unfortunately, that also means this package **only works on Python 3.10 or higher**. There are **no** plans to backport changes to older versions.
+This library is fully in-line type-annotated and passes `mypy --strict`. Unfortunately, that also means this package **only works on Python 3.7 or higher**. There are **no** plans to backport changes to older versions.
 
 This is why this package is available standalone and uses the same package name. There's no reason to use both side-by-side. Once Python's type annotations have reached wider adoption, this package may be merged back and integrated upstream. Until that moment, this package exists to fill that gap.
 
@@ -81,7 +81,7 @@ ___
 
 * Adding/fixing extended key codes
 * Adding flake8 linting
-* Adding mypy type hinting and adding annotations (**This makes this fork Python >=3.10 only!**)
+* Adding mypy type hinting and adding annotations (**This makes this fork Python >=3.7 only!**)
 * Adding scroll functions based on https://github.com/learncodebygaming/pydirectinput/pull/22 and improve them
 * Adding hotkey functions based on https://github.com/learncodebygaming/pydirectinput/pull/30 and improve them
 * Adding more available keyboard keys
@@ -96,7 +96,7 @@ ___
 * Adding automatic disabling of mouse acceleration for more accurate relative mouse movement
 * Increase documentation
 
-**This library uses in-line type annotations that require at least Python version 3.10 or higher and there are no plans to make the code backwards compatible to older Python versions!**
+**This library uses in-line type annotations that require at least Python version 3.7 or higher and there are no plans to make the code backwards compatible to older Python versions!**
 
 
 ___
