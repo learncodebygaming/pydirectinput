@@ -1770,7 +1770,7 @@ def _calc_normalized_screen_coord(
     # This alone is not enough, but we can do better by taking the average of
     # this pixel plus the next pixel.
     # In my testing this perfectly reflected the real pixel that SendInput moves
-    # to, down to the pixels that Windows themselves can't resolve.
+    # to, down to the pixels that Windows itself can't resolve.
     this_pixel: Final[int] = (
         (pixel_coord * 65536 + display_total - 1) // display_total
     )
@@ -2030,7 +2030,7 @@ class __MouseSpeedSettings:
 
 # ----- Temporarily disable Enhanced Pointer Precision -------------------------
 @contextmanager
-def _without_mouse_acceleration() -> Generator[None, None, None]:
+def _no_mouse_acceleration() -> Generator[None, None, None]:
     '''
     Context manager that allows temporarily disabling Windows Enhanced Pointer
     Precision on enter and restoring the previous setting on exit.
@@ -2048,6 +2048,8 @@ def _without_mouse_acceleration() -> Generator[None, None, None]:
         # modify mouse parameters
         if precision != 0:
             _set_mouse_parameters(th1, th2, 0)
+        if speed != 10:
+            _set_mouse_speed(10)
         yield
     finally:
         # restore mouse parameters
@@ -2916,7 +2918,7 @@ def moveRel(
             if disable_mouse_acceleration:
                 # Use a context manager to temporarily disable enhanced pointer
                 # precision
-                with _without_mouse_acceleration():
+                with _no_mouse_acceleration():
                     _send_input(input_struct)
             else:
                 _send_input(input_struct)
@@ -3940,7 +3942,7 @@ def unicode_press(
     Press the sequence of `chars` for `presses` amount of times.
 
     `chars` will be interpreted as a sequence of Unicode characters
-    (independet from keyboard layout). Supports complete Unicode character set
+    (independent from keyboard layout). Supports complete Unicode character set
     but may not be compatible with every application.
 
     Explanation of time parameters (seconds as floating point numbers):
