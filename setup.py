@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="pydirectinput_rgx",
-    version="2.0.3",
+    version="2.0.4",
     author="ReggX",
     author_email="dev@reggx.eu",
     description=(
@@ -20,16 +20,18 @@ setuptools.setup(
         'pydirectinput': ['py.typed']
     },
     classifiers=[
+        "Development Status :: 5 - Production/Stable",
+        "Environment :: Win32 (MS Windows)",
+        "Intended Audience :: Developers",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: Microsoft :: Windows",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
-        "Intended Audience :: Developers",
-        "License :: OSI Approved :: MIT License",
-        "Operating System :: Microsoft :: Windows",
-        "Environment :: Win32 (MS Windows)",
+        "Programming Language :: Python :: 3.11",
         "Topic :: Software Development :: Libraries",
         "Typing :: Typed",
     ],

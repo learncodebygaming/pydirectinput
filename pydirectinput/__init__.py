@@ -59,14 +59,25 @@ else:
     # pip imports
     from typing_extensions import ParamSpec, TypeAlias
 
+# # Python 3.11 or higher
+# if sys.version_info >= (3, 11):
+#     pass
+# else:
+#     pass
 
 # ------------------------------------------------------------------------------
+# https://github.com/python/mypy/issues/7540#issuecomment-845741357
 if TYPE_CHECKING:
-    # https://github.com/python/mypy/issues/7540#issuecomment-845741357
-    _POINTER_TYPE = pointer
+    # We have to get the private Pointer type from typeshed to make
+    # the type checker shut up about the "incompatible types" error.
+    from ctypes import _Pointer  # pyright: ignore[reportPrivateUsage]
+    _POINTER_TYPE = _Pointer
 else:
     class __pointer:
-        '''Monkeypatch typed pointer from typeshed into ctypes'''
+        '''
+        Create pointer proxy class that translates square bracket notation
+        __pointer[type] into POINTER(type).
+        '''
         @classmethod
         def __class_getitem__(cls, item):
             return POINTER(item)
