@@ -82,8 +82,8 @@ ___
 * Adding/fixing extended key codes
 * Adding flake8 linting
 * Adding mypy type hinting and adding annotations (**This makes this fork Python >=3.7 only!**)
-* Adding scroll functions based on https://github.com/learncodebygaming/pydirectinput/pull/22 and improve them
-* Adding hotkey functions based on https://github.com/learncodebygaming/pydirectinput/pull/30 and improve them
+* Adding scroll functions based on [learncodebygaming/PR #22](https://github.com/learncodebygaming/pydirectinput/pull/22) and improve them
+* Adding hotkey functions based on [learncodebygaming/PR #30](https://github.com/learncodebygaming/pydirectinput/pull/30) and improve them
 * Adding more available keyboard keys
 * Adding optional automatic shifting for certain keayboard keys in old down/up/press functions
 * Adding additional arguments for tighter timing control for press and typewrite functions
@@ -95,6 +95,7 @@ ___
 * Adding sleep calibration for mouse duration
 * Adding automatic disabling of mouse acceleration for more accurate relative mouse movement
 * Increase documentation
+* Improve performance of _genericPyDirectInputChecks decorator (Thanks Agade09 for [reggx/PR #1](https://github.com/ReggX/pydirectinput_rgx/pull/1))
 
 **This library uses in-line type annotations that require at least Python version 3.7 or higher and there are no plans to make the code backwards compatible to older Python versions!**
 
