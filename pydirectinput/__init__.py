@@ -1751,12 +1751,16 @@ def _genericPyDirectInputChecks(
     '''
     @functools.wraps(wrappedFunction)
     def wrapper(*args: _PS.args, **kwargs: _PS.kwargs) -> _RT:
-        funcArgs: dict[str, Any] = (
-            inspect.getcallargs(wrappedFunction, *args, **kwargs)
-        )
+        if '_pause' in kwargs:
+            _pause = kwargs['_pause']
+        else:
+            funcArgs: dict[str, Any] = (
+                inspect.getcallargs(wrappedFunction, *args, **kwargs)
+            )
+           _pause = funcArgs.get("_pause")
         _failSafeCheck()
         returnVal: _RT = wrappedFunction(*args, **kwargs)
-        _handlePause(funcArgs.get("_pause"))
+        _handlePause(_pause)
         return returnVal
     return wrapper
 # ------------------------------------------------------------------------------
