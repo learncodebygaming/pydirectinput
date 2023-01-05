@@ -3459,7 +3459,6 @@ def scancode_hotkey(
 
 # ----- keyDown ----------------------------------------------------------------
 # Ignored parameters: logScreenshot
-@_genericPyDirectInputChecks
 def keyDown(
     key: str,
     logScreenshot: None = None,
@@ -4056,11 +4055,11 @@ def unicode_hold(
 
     try:
         for c in chars:
-            downed += unicode_charDown(c)
+            downed += unicode_charDown(c, _pause=False)
         yield
     finally:
         for c in reversed(chars):
-            upped += unicode_charUp(c)
+            upped += unicode_charUp(c, _pause=False)
         if raise_on_failure and not (expectedPresses == downed == upped):
             raise PriorInputFailedException
 # ------------------------------------------------------------------------------
