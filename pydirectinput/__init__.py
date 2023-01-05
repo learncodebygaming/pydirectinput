@@ -3493,7 +3493,7 @@ def keyDown(
     return scancode_keyDown(
         scancode,
         logScreenshot,
-        _pause,
+        _pause=_pause,
         auto_shift=auto_shift
     )
 # ------------------------------------------------------------------------------
@@ -3534,7 +3534,7 @@ def keyUp(
     return scancode_keyUp(
         scancode,
         logScreenshot,
-        _pause,
+        _pause=_pause,
         auto_shift=auto_shift
     )
 # ------------------------------------------------------------------------------
