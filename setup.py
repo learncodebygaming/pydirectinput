@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="pydirectinput_rgx",
-    version="2.0.4",
+    version="2.0.5",
     author="ReggX",
     author_email="dev@reggx.eu",
     description=(
