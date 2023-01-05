@@ -95,7 +95,7 @@ ___
 * Adding sleep calibration for mouse duration
 * Adding automatic disabling of mouse acceleration for more accurate relative mouse movement
 * Increase documentation
-* Improve performance of _genericPyDirectInputChecks decorator (Thanks Agade09 for [reggx/PR #1](https://github.com/ReggX/pydirectinput_rgx/pull/1))
+* Improve performance of _genericPyDirectInputChecks decorator (Thanks Agade09 for [reggx/PR #1](https://github.com/ReggX/pydirectinput_rgx/pull/1) and [reggx/PR #2](https://github.com/ReggX/pydirectinput_rgx/pull/2))
 
 **This library uses in-line type annotations that require at least Python version 3.7 or higher and there are no plans to make the code backwards compatible to older Python versions!**
 
