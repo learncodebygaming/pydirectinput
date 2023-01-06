@@ -1,67 +1,105 @@
-# PyDirectInput
+# pydirectinput_rgx
 
-This library aims to replicate the functionality of the PyAutoGUI mouse and keyboard inputs, but by utilizing DirectInput scan codes and the more modern SendInput() win32 function. PyAutoGUI uses Virtual Key Codes (VKs) and the deprecated mouse_event() and keybd_event() win32 functions. You may find that PyAutoGUI does not work in some applications, particularly in video games and other software that rely on DirectX. If you find yourself in that situation, give this library a try!
+This library is a fork of https://github.com/learncodebygaming/pydirectinput 1.0.4
 
-`pip install pydirectinput`
+This package extends PyDirectInput in multiple ways. It fixes some bugs, adds the remaining missing input functions that still required using PyAutoGUI and provides additional keyword-only arguments to give more precise control over function behavior.
 
-This package is intended to be used in conjunction with PyAutoGUI. You can continue to use PyAutoGUI for all of its cool features and simply substitute in PyDirectInput for the inputs that aren't working. The function interfaces are the same, but this package may not implement all optional parameters and features.
+Contrary to the upstream PyDirectInput package, this package intends to replace PyAutoGUI almost completely for basic usage, skipping more advanced options like logging screenshots and custom tweening functions. This should reduce the need to install both PyDirectInput and PyAutoGUI side-by-side and thereby keep the number of dependencies to a minimum.
 
-Want to see a missing feature implemented? Why not give it a try yourself! I welcome all pull requests and will be happy to work with you to get a solution fleshed out. Get involved in open source! Learn more about programming! Pad your resume! Have fun!
+This library is fully in-line type-annotated and passes `mypy --strict`. Unfortunately, that also means this package **only works on Python 3.7 or higher**. There are **no** plans to backport changes to older versions.
 
-Source code available at https://github.com/learncodebygaming/pydirectinput
+This is why this package is available standalone and uses the same package name. There's no reason to use both side-by-side. Once Python's type annotations have reached wider adoption, this package may be merged back and integrated upstream. Until that moment, this package exists to fill that gap.
 
-Watch the tutorial here: https://www.youtube.com/watch?v=LFDGgFRqVIs
+## Okay, but what is PyDirectInput in the first place?
 
-## Example Usage
+PyDirectInput exists because PyAutoGUI uses older and less compatible API functions.
 
-```python
-    >>> import pyautogui
-    >>> import pydirectinput
-    >>> pydirectinput.moveTo(100, 150) # Move the mouse to the x, y coordinates 100, 150.
-    >>> pydirectinput.click() # Click the mouse at its current location.
-    >>> pydirectinput.click(200, 220) # Click the mouse at the x, y coordinates 200, 220.
-    >>> pydirectinput.move(None, 10)  # Move mouse 10 pixels down, that is, move the mouse relative to its current position.
-    >>> pydirectinput.doubleClick() # Double click the mouse at the
-    >>> pydirectinput.press('esc') # Simulate pressing the Escape key.
-    >>> pydirectinput.keyDown('shift')
-    >>> pydirectinput.keyUp('shift')
-```
+In order to increase compatibility with DirectX software and games, the internals have been replaced with SendInput() and Scan Codes instead of Virtual Key Codes.
 
-## Documentation
+For more information, see the original README at https://github.com/learncodebygaming/pydirectinput
 
-The DirectInput key codes can be found by following the breadcrumbs in the documentation here: https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-input
 
-You might also be interested in the main SendInput documentation here: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput
+## Installation
 
-You can find a discussion of the problems with using vkCodes in video games here: https://stackoverflow.com/questions/14489013/simulate-python-keypresses-for-controlling-a-game
+`pip install pydirectinput-rgx`
 
-## Testing
+## Provided functions with same/similar signature to PyAutoGui:
 
-To run the supplied tests: first setup a virtualenv. Then you can pip install this project in an editable state by doing `pip install -e .`. This allows any edits you make to these project files to be reflected when you run the tests. Run the test file with `python3 tests`.
+* Informational:
+  - `position()`
+  - `size()`
+  - `onScreen()`
+  - `isValidKey()`
+* Mouse input:
+  - `moveTo()`
+  - `move()` / `moveRel()`
+  - `mouseDown()`
+  - `mouseUp()`
+  - `click()` and derivatives:
+    - `leftClick()`
+    - `rightClick()`
+    - `middleClick()`
+    - `doubleClick()`
+    - `tripleClick()`
+  - `scroll()` / `vscroll()`
+  - `hscroll()`
+  - `dragTo()`
+  - `drag()` / `dragRel()`
+* Keyboard input:
+  - `keyDown()`
+  - `keyUp()`
+  - `press()`
+  - `hold()` (supports context manager)
+  - `write()` / `typewrite()`
+  - `hotkey()`
 
-I have been testing with Half-Life 2 to confirm that these inputs work with DirectX games.
 
-## Features Implemented
+### Additionally, keyboard input has been extended with :
+* low-level scancode_* functions that allow integer scancode as arguments:
+  - `scancode_keyDown()`
+  - `scancode_keyUp()`
+  - `scancode_press()`
+  - `scancode_hold()` (supports context manager)
+  - `scancode_hotkey()`
+* higher-level unicode_* functions that allow inserting Unicode characters into supported programs:
+  - `unicode_charDown()`
+  - `unicode_charUp()`
+  - `unicode_press()`
+  - `unicode_hold()` (supports context manager)
+  - `unicode_write()` / `unicode_typewrite()`
+  - `unicode_hotkey()`
 
-- Fail Safe Check
-- Pause
-- position()
-- size()
-- moveTo(x, y)
-- move(x, y) / moveRel(x, y)
-- mouseDown()
-- mouseUp()
-- click()
-- keyDown()
-- keyUp()
-- press()
-- write() / typewrite()
 
-## Features NOT Implemented
+## Missing features compared to PyAutoGUI
 
-- scroll functions
-- drag functions
-- hotkey functions
-- support for special characters requiring the shift key (ie. '!', '@', '#'...)
-- ignored parameters on mouse functions: duration, tween, logScreenshot
-- ignored parameters on keyboard functions: logScreenshot
+- `logScreenshot` arguments. No screenshots will be created.
+- `tween` arguments. The tweening function is hardcoded at the moment.
+
+___
+
+### Changelog compared to forked origin point PyDirectInput version 1.0.4:
+
+* Adding/fixing extended key codes
+* Adding flake8 linting
+* Adding mypy type hinting and adding annotations (**This makes this fork Python >=3.7 only!**)
+* Adding scroll functions based on [learncodebygaming/PR #22](https://github.com/learncodebygaming/pydirectinput/pull/22) and improve them
+* Adding hotkey functions based on [learncodebygaming/PR #30](https://github.com/learncodebygaming/pydirectinput/pull/30) and improve them
+* Adding more available keyboard keys
+* Adding optional automatic shifting for certain keayboard keys in old down/up/press functions
+* Adding additional arguments for tighter timing control for press and typewrite functions
+* Adding Unicode input functions that allow sending text that couldn't be sent by simple keyboard
+* Adding Scancode input functions that allow lower level access to SendInput's abstractions
+* Adding support for multi-monitor setups via virtual resolution (most functions should work without just fine)
+* Adding support for swapped primary mouse buttons
+* Adding duration support for mouse functions
+* Adding sleep calibration for mouse duration
+* Adding automatic disabling of mouse acceleration for more accurate relative mouse movement
+* Increase documentation
+* Improve performance of _genericPyDirectInputChecks decorator (Thanks Agade09 for [reggx/PR #1](https://github.com/ReggX/pydirectinput_rgx/pull/1) and [reggx/PR #2](https://github.com/ReggX/pydirectinput_rgx/pull/2))
+
+**This library uses in-line type annotations that require at least Python version 3.7 or higher and there are no plans to make the code backwards compatible to older Python versions!**
+
+
+___
+See the [pydirectinput's original README](OLD_README.md).
+___
