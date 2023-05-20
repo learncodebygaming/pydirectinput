@@ -168,8 +168,10 @@ KEYBOARD_MAPPING = {
     'right': MapVirtualKey(0x27, MAPVK_VK_TO_VSC),
 }
 
-# C struct redefinitions
+for c in range(32, 92):
+    KEYBOARD_MAPPING[chr(c).lower()] = MapVirtualKey(c, MAPVK_VK_TO_VSC)
 
+# C struct redefinitions
 PUL = ctypes.POINTER(ctypes.c_ulong)
 
 
